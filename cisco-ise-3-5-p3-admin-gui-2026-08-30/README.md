@@ -63,6 +63,28 @@ context data in Ignite, giving daytime authentication/session/API work concrete
 ways to raise local cache/query pressure. The exact session settings changed in
 production must be identified before associating them with any specific cache.
 
+The operator has clarified that, once triggered, the GUI can remain slow for
+12 hours and recovers only after an ISE application restart. That persistence
+substantially weakens a simple work-hour user burst as the complete cause. It
+separates the incident into an initiating event and a **latched application
+state**. A 09:00 browser/integration burst, scheduled job, or topology event may
+initiate the transition, but a failed Data Grid listener/container, stuck
+topology or persistence recovery, invalid static Ignite client-pool state,
+blocked/serialized Application Server work, or a self-renewing Kong/client
+retry loop must keep it present. New traffic may sustain or expose the state;
+it need not be the original fault.
+
+This also means that an Administration thread-pool alert need not prove the
+same 200 requests live for 12 hours. The pool can be occupied by successive
+generations of slow requests while the shared dependency remains unavailable.
+Patch 3's approximately 27-second refusal cycle and five-minute Ignite timeout,
+and the rooted control's one-hour Kong upstream-read timeout, are all shorter
+than the reported incident. Twelve hours therefore requires renewed work or a
+backend condition that never self-recovers. Application restart simultaneously
+reconstructs the Application Server, Kong/API gateway, and local Data Grid
+runtime, so restart recovery strongly localizes the problem to that application
+stack but does not by itself distinguish which component latched.
+
 A one-to-two-hour Data Grid connectivity break between the PPAN/PMNT and
 SPAN/SMNT is now a strong candidate initiator, but only if its chronology is
 right. Patch 3 declares a failed member after a configured 120-second failure

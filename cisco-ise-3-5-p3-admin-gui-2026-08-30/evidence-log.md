@@ -966,3 +966,37 @@ MnT/Application Server disruption through 3.3 Patch 4, fixed in Patch 5. The
 healthy Analytics-disabled restore control further prevents attributing the
 production incident to every 3.3-to-3.5 migration. Production chronology and
 the Analytics-enabled backup remain the discriminating evidence.
+
+## 2026-08-30 — Degraded state can persist for 12 hours until restart
+
+**Source:** operator clarification
+
+**Provenance:** Reported for production; failure-state interpretation inferred
+from verified Patch 3 timers and restart scope
+
+Once the production GUI becomes slow, it can remain degraded for 12 hours and
+does not recover until `application stop/start ise`. This makes a transient
+09:00 administrator burst inadequate as the whole explanation. The incident
+has two variables: an initiating event and a latched application state. Normal
+work-hour demand, automation, a scheduled job, or a Data Grid topology event
+can be the initiator, while local Ignite listener/container loss, stuck
+topology/persistence recovery, static client-pool/serialized work, or a
+self-renewing request/retry feedback loop preserves the degraded state.
+
+The twelve-hour duration exceeds the verified approximately 27-second immediate
+Ignite-refusal cycle, five-minute Ignite client timeout, and rooted-control
+one-hour Kong upstream-read timeout. It can consist of successive generations
+of blocked requests rather than the same workers remaining active throughout.
+Application restart reconstructs Tomcat/jsvc, Kong, and local Data Grid runtime
+together; its success localizes the latching condition to the application stack
+but does not distinguish among them.
+
+The discriminating capture is a quiet degraded interval. Restrict or pause
+external GUI/legacy-Admin request sources while preserving management access,
+then determine whether Admin occupancy drains and whether local 10800 and Data
+Grid return without a restart. No new traffic plus persistent threshold alerts
+supports internally retained/scheduled work. Drained Admin occupancy but a
+still-missing 10800 and immediately slow first request supports a latched Data
+Grid fault. Full recovery after traffic removal supports a client-driven retry
+loop. Compare thread IDs/stacks near onset and hours later to distinguish the
+same stuck work from repeated new slow requests.
