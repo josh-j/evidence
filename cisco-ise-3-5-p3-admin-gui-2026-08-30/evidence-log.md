@@ -1000,3 +1000,33 @@ still-missing 10800 and immediately slow first request supports a latched Data
 Grid fault. Full recovery after traffic removal supports a client-driven retry
 loop. Compare thread IDs/stacks near onset and hours later to distinguish the
 same stuck work from repeated new slow requests.
+
+## 2026-08-30 — Post-Data-Grid-reset recurrence occurred at 15:00–16:00
+
+**Source:** operator clarification
+
+**Provenance:** Reported for production; timing interpretation is inference
+
+After the PAN-local Data Grid reset/reconfiguration, the system remained
+healthy for approximately 48 hours and degradation returned around 15:00–16:00,
+not at the previously reported 09:00 workday onset. This materially weakens a
+single fixed clock-time job or the start of work hours as the universal cause.
+The stronger model is a threshold whose time-to-failure depends on reset depth,
+starting headroom, and accumulated workload or state.
+
+Candidate threshold variables include Ignite cache/event/session population,
+container/JVM native-memory growth, connection or object leakage, WAL/page/
+checkpoint state, repeated topology/client recovery, request count, or a queue
+that accumulates faster than it drains. An ordinary application restart clears
+runtime state but retains local Data Grid persistence; the deeper reset removes
+that local persistence, work state, snapshots, diagnostics, image/container,
+and initialization lock. The longer runway is therefore compatible with a
+PAN-local Data Grid/runtime condition, although simultaneous session-setting
+changes prevent attributing the interval solely to the reset.
+
+Future cycle comparison must record both wall-clock time and hours since the
+last recovery, plus cumulative Admin request count and Data Grid/container
+state. The first `IgniteClientPool` refusal, local 10800 loss, Data Grid state
+transition, CPU step, first Admin threshold alert, and first user-observed slow
+page must be distinguished. A fault beginning earlier and becoming visible at
+15:00–16:00 would otherwise be misclassified as an afternoon trigger.

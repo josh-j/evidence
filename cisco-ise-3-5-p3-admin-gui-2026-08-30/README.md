@@ -85,6 +85,23 @@ reconstructs the Application Server, Kong/API gateway, and local Data Grid
 runtime, so restart recovery strongly localizes the problem to that application
 stack but does not by itself distinguish which component latched.
 
+The post-Data-Grid-reset recurrence did not begin at 09:00. After approximately
+48 healthy hours, degradation returned around 15:00–16:00. This weakens a fixed
+clock-time job or start-of-workday event as the universal trigger. It instead
+supports a threshold whose runway depends on starting state and accumulated
+work: cache/event/session state, a memory or connection leak, persistence/WAL/
+checkpoint growth, repeated topology/client recovery, or a request-count-driven
+defect. A normal application restart may leave less headroom than the deeper
+PAN-local Data Grid rebuild, causing the threshold to be crossed earlier on the
+next workday; the reset may provide enough headroom to survive an additional
+day and fail only after more daytime demand.
+
+This timing remains confounded because session-related settings changed in the
+same maintenance window. It also does not prove that the first Data Grid fault
+occurred at 15:00–16:00: the first 10800 refusal or unhealthy state may predate
+the first visibly slow page. Analysis should use hours since recovery and
+cumulative workload, not only time of day.
+
 A one-to-two-hour Data Grid connectivity break between the PPAN/PMNT and
 SPAN/SMNT is now a strong candidate initiator, but only if its chronology is
 right. Patch 3 declares a failed member after a configured 120-second failure
