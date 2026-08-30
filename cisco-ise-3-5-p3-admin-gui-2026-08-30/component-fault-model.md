@@ -459,6 +459,49 @@ window. Other PSNs can continue RADIUS/TACACS, but a stopped PSN cannot serve it
 own authentication traffic and NAD failover determines continuity. Do not stop
 multiple Data Grid members together merely to clear safe mode.
 
+### Slowness persisted with GUI API services disabled
+
+This observation narrows the client-trigger hypothesis, but its weight depends
+on experiment timing. If ERS/OpenAPI was disabled only after the GUI was
+already slow, an existing full Admin pool, missing 10800 listener, Ignite
+recovery state, or Kong backlog can persist; lack of immediate recovery does
+not exonerate or implicate the original request source. If the services were
+disabled before a clean application restart and remained disabled through the
+next full healthy-to-degraded cycle, then ERS/OpenAPI traffic is not a necessary
+trigger and DNA Center use of those APIs moves substantially down the ranking.
+
+Exact Patch 3 bundled help separates three controls:
+
+- **API Service Settings** controls external ERS service availability on the
+  PAN/other nodes; OpenAPI is enabled by default from ISE 3.4 and its exact
+  toggle state must be confirmed rather than inferred from the ERS switch.
+- **API Gateway Settings** selects nodes that run the gateway. The gateway is a
+  separate service and remains the public 443 entry point.
+- The **Admin GUI** continues to use the Dockerized gateway on 443 and the
+  GUI/catch-all route to Tomcat 9443/`admin-http-pool`.
+
+Consequently, “API services off” does not eliminate:
+
+- browser GUI/AJAX traffic or ACAS scans of `/admin` and catch-all paths;
+- Kong worker/connection pressure, including calls to disabled endpoints;
+- pxGrid/DNA integration traffic and pxGrid Direct/EDDA connectors;
+- Admin-node internal scheduled jobs, endpoint purge, reports, or Analytics;
+- Oracle/Ignite work initiated inside the Application Server;
+- a PAN-local Data Grid runtime/recovery defect.
+
+It does directly weaken ordinary DNA/API automation through `/ers` and `/api`,
+especially if disabled throughout a clean recurrence cycle. Calls may continue
+to arrive and fail or time out when services are disabled, so Kong logs must
+still be checked for the DNA/ACAS source. The route/status shows whether the
+toggle removed backend work or merely converted a client poll into an error
+retry storm.
+
+The updated ranking, assuming the APIs were disabled before restart and the
+incident still recurred, is: local Ignite/Application Server failure or
+internal scheduled/data workload first; GUI/catch-all/scanner traffic and
+pxGrid/integration traffic next; ordinary ERS/OpenAPI workload lower. It does
+not by itself establish whether 10800 loss precedes or follows Admin demand.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at

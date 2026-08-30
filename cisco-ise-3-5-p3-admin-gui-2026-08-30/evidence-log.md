@@ -734,6 +734,31 @@ The restart can still cause local Data Grid leave/rejoin, Admin downtime, and
 possibly PAN auto-failover; other PSNs continue independently unless they are
 also stopped.
 
+## 2026-08-30 — Recurrence with GUI API services disabled incorporated
+
+**Source:** affected-production operator and exact Patch 3 bundled help for API
+Service/API Gateway settings
+
+The operator reports that the same slowness occurred after API services were
+disabled in the GUI. If the change was made before a clean restart and remained
+in force until recurrence, this is strong evidence that ordinary ERS/OpenAPI
+traffic is not required to trigger the incident and lowers DNA Center's
+ERS/OpenAPI workload as the primary cause. If made only during degradation, it
+does not clear already-stuck Admin, Kong, or Ignite state and is a weaker test.
+
+Patch 3 distinguishes API services from the gateway and GUI. Disabling ERS or
+OpenAPI does not stop Kong's public 443 role, the GUI/catch-all route to Tomcat
+9443, pxGrid, internal schedules, or Data Grid. OpenAPI is enabled by default
+from 3.4, so the exact ERS and OpenAPI toggle states must both be recorded.
+Calls to disabled services may continue and time out, potentially causing
+client retries visible in Kong logs.
+
+Subject to clean-cycle timing, the updated focus is PAN-local Ignite/
+Application Server runtime or internal scheduled/data work, followed by GUI or
+scanner catch-all traffic and pxGrid/DNA activity. Ordinary external
+ERS/OpenAPI demand is now lower priority but not excluded as gateway error-load
+without source/path/status evidence.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 
