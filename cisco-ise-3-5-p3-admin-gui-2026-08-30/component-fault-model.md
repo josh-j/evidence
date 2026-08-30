@@ -294,6 +294,50 @@ an ISE restart, that is strong causal evidence. If the pool remains saturated
 or 10800 remains absent, the client was noise or an amplifier rather than the
 underlying fault.
 
+### Could one user or client cause it?
+
+One request is assigned one Admin worker; one ordinary idle login does not
+create 200 threads. A single identity or source can nevertheless produce the
+incident through two different mechanisms:
+
+1. **Concurrency/retry source:** one browser with several tabs, a broken AJAX
+   retry loop, an API script, DNA/Catalyst Center, a monitoring poller, scanner,
+   or report/export client submits overlapping requests faster than slow ones
+   complete. An expired credential returning errors without backoff, a client
+   retrying timeouts while prior requests still run, or a device/laptop waking
+   at 09:00 are concrete patterns.
+2. **Trigger of shared server contention:** one expensive Context Visibility
+   grid, endpoint export, report, broad search/sort, restored-data edge case,
+   or integration query enters a global lock, synchronized Ignite-client path,
+   pathological database/cache query, or resource failure. Other users' normal
+   requests then accumulate behind shared state. Here one user triggers the
+   transition, but the persistent deployment-wide failure is a server defect or
+   capacity/concurrency weakness rather than normal single-user behavior.
+
+Specific single-source candidates consistent with the 09:00 timing include a
+human opening a saved data-heavy page, a workstation resuming with stale tabs,
+DNA Center beginning a daily synchronization or retry cycle, an API credential
+expiring and creating an authentication loop, a scheduled report/export, a
+vulnerability scanner, a reverse-proxy health checker, and OIDC/SSO redirect or
+session-refresh loops. A browser can issue many AJAX requests per navigation,
+but one normal browser is less likely than automation to sustain the roughly
+nine 22-second requests per second needed to fill 200 workers directly.
+
+Identity, address, and process are not interchangeable. One source IP may hide
+many users behind NAT/proxy; one user can appear from several addresses; and one
+DNA appliance can run multiple concurrent workers. Attribute with the tuple
+`source IP/XFF + authenticated user + User-Agent/client certificate + URI`, not
+any single field.
+
+Evidence that favors a single source is a dominant tuple beginning just before
+the onset, repeated identical URIs/statuses, overlapping request durations,
+and disappearance of new slow requests when only that source is paused.
+Evidence against it is a normal source/URI distribution, loss of 10800 before
+the source-rate change, or continued pool/GUI failure after the source stops.
+If traffic removal stops new requests but does not restore an already-missing
+Data Grid listener, the source may have triggered a sticky server failure and a
+restart/reset can still be required.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at

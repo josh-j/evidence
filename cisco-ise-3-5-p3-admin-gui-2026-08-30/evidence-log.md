@@ -648,6 +648,31 @@ failure amplification. At 22-second service time, approximately nine requests
 per second can occupy the predicted 200-thread Admin pool despite modest
 bandwidth.
 
+## 2026-08-30 — Single-user/client mechanisms separated
+
+One request consumes one worker and an idle session consumes none, so an
+ordinary single login does not directly create the full Admin pool. One source
+can still cause the event either by submitting overlapping requests/retries or
+by triggering a shared server-side lock, pathological query, Ignite-client
+serialization, or runtime failure behind which other requests accumulate.
+
+Credible 09:00 single-source candidates include a user opening a data-heavy
+saved grid/report, a resumed browser with stale polling tabs, DNA Center daily
+sync or credential retry, API automation, scheduled export, vulnerability
+scanner, health checker, and SSO/session-refresh loop. Automation is more
+likely than a normal browser to sustain the approximately nine 22-second
+requests per second that can occupy 200 workers. A normal user action that
+causes persistent deployment-wide failure still indicates a server defect or
+capacity/concurrency weakness, even if that action is the trigger.
+
+Attribution requires source IP/XFF, authenticated user, User-Agent/client
+certificate, and query-stripped URI together. A source tuple dominating just
+before onset and disappearing when selectively paused supports causality. A
+missing 10800 listener before its rate increase, normal traffic distribution,
+or continued failure after it stops places the client downstream of the root
+fault. A source can also trigger sticky Data Grid state, so lack of immediate
+recovery after blocking it does not alone exclude an initiating role.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 
