@@ -29,9 +29,12 @@ local Data Grid listener stops/restarts or never becomes fully active
     -> Kong retains slow upstream requests, worker pressure, possible OOM
 ```
 
-The reason the listener becomes unavailable is not yet proven. The focused
-branches are Data Grid container restart/crash, partial/deactivated Ignite
-state, or durable Data Grid/discovery/cache state exposed by daytime workload.
+The reason the listener becomes unavailable is not yet proven. The leading
+branch is a runtime container/JVM exit or restart-suppression problem under
+daytime workload. Connector binding and discovery/activation are next.
+Permanent on-disk corruption is less consistent with an ordinary application
+restart restoring service while retaining the same persisted data; local
+recovery/checkpoint state remains possible but is not the leading explanation.
 The 32-vCPU/64-GiB platform profile and 09:00 request load are credible
 capacity amplifiers. Analytics-enabled migrated state remains a possible input
 to the failing path, not the presently demonstrated failing component.
@@ -44,6 +47,12 @@ on OOM. Separately, a stranded `/tmp/ise-ignite-service.lock` makes the start
 path report “initializing” without starting a missing container, and Option 45
 explicitly removes that lock. Local WAL/persistence recovery or discovery/TLS
 startup failures are the next focused branches.
+
+These are candidate explanations, not production findings. No Ignite-specific
+OOM, exit code, stranded lock, WAL error, or connector bind error has yet been
+provided from the affected node. The established lead is the missing/refused
+local listener; the first Data Grid transition and container exit reason are
+the evidence still required for root cause.
 
 This working statement is falsifiable without production root access. During
 the next onset, supported `show application status ise` and `show ports |

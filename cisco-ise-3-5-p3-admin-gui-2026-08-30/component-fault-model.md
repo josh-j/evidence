@@ -347,6 +347,15 @@ signatures include `OutOfMemoryError`, exit code 137, `Killed process`, heap
 dump/error-file creation, repeated “initializing,” WAL/checkpoint/page errors,
 Oracle JDBC discovery errors, TLS/keystore errors, and `Address already in use`.
 
+Evidence weighting matters. Runtime memory/exit and restart-state defects rank
+above hard persistence corruption because a normal ISE application restart
+restores the GUI without deleting `/opt/ignite/data`. Truly unreadable durable
+pages would ordinarily fail again during immediate recovery. Persistence still
+matters if the defect is transient checkpoint/recovery state, topology-related,
+or only becomes fatal after new writes. At present there is no production
+Ignite OOM, exit code, lock-state, WAL, or bind signature, so none of these
+mechanisms should be stated as the established cause.
+
 ## What a one-node Option 45 reset means
 
 The production Option 45 operation was run on the PAN only. The exact Patch 3
