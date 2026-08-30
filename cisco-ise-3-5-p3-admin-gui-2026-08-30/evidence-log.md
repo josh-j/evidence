@@ -556,6 +556,35 @@ logs during degradation. It will separate runnable logging/serialization/GC or
 query threads from the larger population of occupied but waiting Admin
 threads.
 
+## 2026-08-30 — Admin thread creation path verified
+
+**Source:** exact Patch 3 platform properties and read-only rooted 3.3 Tomcat
+configuration
+
+**Provenance:** Connector/executor design verified; affected request rate and
+URI mix not yet supplied
+
+Tomcat's local HTTPS connector on 9443 dispatches requests to
+`AdminExecutorPool`, whose workers are named `admin-http-pool-*`. Kong proxies
+public GUI/API traffic from 443 to this connector. The executor creates
+additional reusable workers when requests arrive without enough idle workers,
+up to the configured maximum. Patch 3's predicted `sns3815` profile specifies
+five spare workers and a 200-thread maximum. The rooted 3.3 control has the
+same structure with a generated 450-thread maximum.
+
+GUI page/API calls, AJAX polling, ERS/OpenAPI automation, monitoring, and
+qualifying Kong upstream retries create request tasks. Idle authenticated
+sessions do not each own a thread, and RADIUS/TACACS traffic uses the separate
+Protocols Engine. Slow downstream reads retain rather than create the initial
+worker: with 22-second average latency, roughly nine arrivals per second can
+occupy 200 workers; with 60-second latency, about 3.3 per second can do so.
+
+The Ignite state-monitor and event-listener threads are separate scheduled
+threads, not Admin workers. Their use of the same synchronized Ignite client
+pool can nevertheless delay Admin requests. The approximately 15-minute alert
+recurrence can therefore be health monitoring repeatedly observing sustained
+occupancy, not a new thread-creation event every 15 minutes.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

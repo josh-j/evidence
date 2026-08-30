@@ -143,6 +143,45 @@ The full stack, request URI, start/end timestamp, and connected remote endpoint
 are needed to name the dependency. Repeated copies of the same full stack are
 more useful than the common outer filter frame.
 
+## What creates `admin-http-pool` threads
+
+Tomcat's HTTPS Admin connector creates and reuses these Java worker threads.
+The verified connector listens on local port 9443 and references executor
+`AdminExecutorPool`, whose thread-name prefix is `admin-http-pool`. Kong
+accepts public 443 traffic and proxies applicable GUI/API requests to that
+connector. When concurrent requests exceed the currently idle workers,
+Tomcat's executor can create more workers up to its configured `maxThreads`;
+after completing a request, a worker returns to the pool for reuse.
+
+Patch 3 sets `minSpareThreads=5` and, for the predicted `sns3815` profile,
+`maxThreads=200`. The rooted 3.3 control used the same executor/connector shape
+but a generated maximum of 450, demonstrating that the maximum is
+release/profile state rather than one universal ISE constant.
+
+Sources of Admin requests include browser page loads, the GUI's AJAX/API calls
+and polling, ERS/OpenAPI clients, monitoring or automation calling Admin APIs,
+and Kong retrying qualifying failed upstream requests. One human page
+navigation can therefore create several concurrent tasks. A configured or
+idle login session does not own a permanent worker, and increasing maximum
+user sessions does not directly create threads. RADIUS/TACACS requests use the
+Protocols Engine rather than this executor.
+
+The distinction between creation and retention is central to this incident.
+Tomcat creates workers because requests arrive; slow Oracle, Ignite, HTTP, or
+inter-node operations keep those workers occupied. At the Patch 3 maximum of
+200, an average 22-second service time needs only about nine new requests per
+second to occupy the entire pool (`concurrency = rate × latency`). At a
+60-second service time, about 3.3 requests per second is enough. Later requests
+then queue behind the pool or fail upstream.
+
+`IgniteStateMonitorThread` and `IgniteEventListenerThread` are separately named
+scheduled threads; they do not become `admin-http-pool` workers. Their client
+creation does share the `IgniteClientPool` class-wide monitor with Admin work,
+so their retry/reset activity can delay existing Admin requests and help keep
+the pool occupied. A recurring threshold alarm is a periodic observation that
+occupancy remains high, not evidence that a new set of threads is created each
+time the alarm fires.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at
