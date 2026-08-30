@@ -1091,3 +1091,34 @@ read/write tail latency and errors, CSV/S2D ownership/path events, backup/
 checkpoint/live-migration records, host CPU scheduling, and virtual-switch/NIC
 drops or resets. If repeated first-failure windows are clean, infrastructure
 becomes a non-actionable residual risk rather than a live root-cause branch.
+
+## 2026-08-30 — “Shared VHDX” cases separated
+
+**Source:** operator hypothesis and Microsoft Hyper-V/VHD Set documentation
+
+**Provenance:** Hyper-V behavior established; production disk mapping not yet
+provided
+
+Multiple ISE VHDX files residing on the same CSV is normal and does not share
+guest state. Likewise, unique differencing/AVHDX leaves can share a parent
+template while isolating writes in each child; long or damaged chains remain a
+performance/integrity concern, not shared live application state. Physical
+deduplication or block cloning is also logically isolated.
+
+The exact same writable leaf VHDX attached to two or three ISE VMs would be a
+critical misconfiguration. Microsoft's shared VHDX/VHD Set facility is for
+guest-cluster data disks with coordinated persistent reservations; Microsoft
+explicitly excludes using a shared VHDX as the operating-system disk. ISE uses
+ordinary independent appliance filesystems, Oracle, and persistent Ignite data
+and is not such a guest cluster. Simultaneous writable attachment could corrupt
+filesystem and application state, overwrite node identity, and directly cause
+Data Grid and kernel failures. It would usually cause broader or earlier damage
+than the reported Admin-only daily transition, but it must supersede lower-risk
+hypotheses if found.
+
+The production check is read-only: inventory every VM hard disk's exact leaf
+`Path`, `SupportPersistentReservations`, `VhdType`, and `ParentPath` from each
+current Hyper-V owner. Group exact leaf paths and require uniqueness. A shared
+parent with unique leaves is not the same result. If any leaf path is duplicated,
+preserve configuration and escalate before any detach, merge, copy, restart, or
+other attempted repair.

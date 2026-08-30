@@ -511,6 +511,55 @@ none of those before the first 10800/47100/47500 failure would make Hyper-V and
 storage non-actionable residual risks. Until then they remain low-priority
 trigger candidates, not plausible explanations for the latched 12-hour state.
 
+### If two or three ISE VMs “share a VHDX”
+
+This phrase must be resolved to an exact leaf path and disk type:
+
+- Separate VHDX files on the same S2D/CSV volume are normal and do not share
+  guest blocks or ISE state.
+- Different differencing/AVHDX leaf disks may share one parent/template VHDX.
+  Writes remain in each VM's own child. This does not duplicate live ISE state,
+  although long checkpoint/differencing chains can add I/O overhead and must
+  remain intact.
+- ReFS block cloning or storage deduplication can share physical extents while
+  preserving independent logical virtual disks; this is not guest-visible
+  writable sharing.
+- The exact same writable leaf `.vhdx` path attached to multiple ISE VMs is a
+  critical fault. Hyper-V shared VHDX/VHD Set is intended for data disks used
+  by a guest failover cluster with coordinated ownership/persistent
+  reservations, not for a shared operating-system disk. Cisco ISE nodes are
+  independent appliances with ordinary filesystems, Oracle, and Ignite
+  persistence; they cannot safely coordinate simultaneous block-level writes.
+  See Microsoft's [VHD Set documentation](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/manage/create-vhdset-file)
+  and [shared-VHDX guest-cluster guidance](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/dn265980%28v%3Dws.11%29).
+
+If the boot or `/opt` disk were truly shared writable, filesystem, Oracle, and
+`/opt/ignite/data` writes from multiple nodes could corrupt or overwrite each
+other, produce identity/IP collisions, and readily explain Data Grid and kernel
+failures. It would normally cause broader and more immediate damage than the
+reported daily Admin-only pattern, so it is a critical configuration check but
+not yet the best behavioral match. Independently running ISE `setup` is only
+meaningful if each VM had an independent writable leaf by then.
+
+On each current Hyper-V owner, this read-only inventory distinguishes the
+cases:
+
+```powershell
+$iseNames = @("ISE-01", "ISE-02", "ISE-03")
+$iseDisks = Get-VM | Where-Object Name -in $iseNames | Get-VMHardDiskDrive
+$iseDisks | Select-Object VMName, ControllerType, ControllerNumber, ControllerLocation, Path, SupportPersistentReservations
+$iseDisks | Group-Object Path | Where-Object Count -gt 1
+$iseDisks | ForEach-Object {
+    Get-VHD -Path $_.Path | Select-Object Path, VhdType, ParentPath
+}
+```
+
+The first required result is a unique leaf `Path` for every VM disk. A common
+`ParentPath` with unique differencing leaves is a different finding. If an
+exact leaf path is duplicated, preserve the VM/disk configuration and involve
+the Hyper-V and Cisco owners before detaching, merging, copying, or restarting
+anything; an improvised live repair could compound corruption.
+
 ### Supported by evidence
 
 - The incident disproportionately affects the Admin/control plane while authentication remains operational.
