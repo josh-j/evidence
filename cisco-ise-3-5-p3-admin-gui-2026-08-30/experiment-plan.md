@@ -94,7 +94,10 @@ At baseline and at short intervals around onset, capture:
   `CharacterEncodingFilter.java:123` frame alone. Record request URI, start/end
   time, socket destination, and the closest application/client frames.
 - Full OOM event from invocation through `Killed process`, `oom_memcg`, and cgroup path.
-- Active platform profile and generated `apigateway.memory`, Data Grid RAM, and Admin max-thread values.
+- Supported `show inventory` and `show tech-support` output from every node,
+  including the `Displaying ISE Profile` / `Profile :` line. Ask TAC for the
+  generated `apigateway.memory`, Data Grid RAM, Admin max-thread values, and
+  runtime container limits; production root access is not assumed.
 - Data Grid container state/restart count and local TCP 10800 listener state.
 - Kong container `memory.current`, `memory.max`, `memory.events`, OOM counters, and restart count (Cisco TAC/root collection).
 - Active GUI sessions, source addresses, API clients, reports, and scheduled jobs.

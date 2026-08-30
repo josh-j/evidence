@@ -314,8 +314,13 @@ rebuild trigger.
 This makes a Kong/nginx cgroup OOM technically credible and elevates the active
 profile from a generic lead to a concrete prediction: absent cloud detection
 or other platform classification, the reported VM shape should select
-`sns3815`. Production must still confirm the generated profile and prove that
-the 1,536-MiB cgroup is Kong; `nginx invoked oom-killer` alone is insufficient.
+`sns3815`. Production does not require root to confirm the profile: the
+supported `show tech-support` path invokes ISE's platform-property reader and
+prints `Profile : <name>` under `Displaying ISE Profile`. A GUI-generated
+support bundle also includes show-tech material. Production must still prove
+that the 1,536-MiB cgroup is Kong; `nginx invoked oom-killer` alone is
+insufficient, and TAC/root assistance may be needed for runtime container
+inspection.
 Do not manually edit Cisco's generated properties or container limit. Correct
 the VM to a Cisco-supported CPU/RAM shape or obtain a Cisco-supported profile
 correction from TAC.
@@ -359,7 +364,7 @@ not use “kernel panic” as the explanation for the Admin incident.
 | 1 | Local Ignite thin-client service becomes unavailable; synchronized retries amplify it into Admin saturation. | Best match for the exact repeated stack, restart recovery, and possible Data Grid-reset benefit. The initiator is still unknown. | At first onset, show whether `localhost:10800` loses its listener or the Data Grid container restarts/inactivates **before** Admin busy threads rise. |
 | 2 | 09:00 GUI/API demand triggers or magnifies a latent Admin/Data Grid failure. | Strong temporal fit; no request-source inventory yet. | Correlate first minute with Kong access logs, Admin sessions, API clients, scheduled reports, and page/URI latency. Temporarily remove one identified poller in a controlled window. |
 | 3 | Kong memory/worker pressure is an initiating or feedback-loop fault. | A 1.5-GiB cgroup OOM and worker errors are material, but the victim, cgroup, and ordering are missing. | Full OOM record, Kong cgroup counters, worker/connection counts, exact error, and timestamp preceding or following Ignite/Admin onset. |
-| 4 | The 32-vCPU/64-GiB mixed VM shape selects the undersized `sns3815` profile and makes Kong/Admin capacity a failure amplifier. | Exact Patch 3 bytecode predicts `sns3815`: 1,536-MiB Kong, 2-GiB Data Grid, 200 Admin threads, and 12-GiB JVM heap. The OOM limit exactly matches, but its cgroup/victim and the production active profile remain unproven. | Capture `platform.profile`, active limits, and container cgroup values on all nodes. If confirmed, test a Cisco-supported CPU/RAM shape with TAC guidance and compare the same work-hour load. |
+| 4 | The 32-vCPU/64-GiB mixed VM shape selects the undersized `sns3815` profile and makes Kong/Admin capacity a failure amplifier. | Exact Patch 3 bytecode predicts `sns3815`: 1,536-MiB Kong, 2-GiB Data Grid, 200 Admin threads, and 12-GiB JVM heap. The OOM limit exactly matches, but its cgroup/victim and the production active profile remain unproven. | Run supported `show inventory` and `show tech-support` on all nodes; record the latter's `Profile :` line. Ask TAC to confirm active limits and container cgroups. If confirmed, test a Cisco-supported CPU/RAM shape with TAC guidance and compare the same work-hour load. |
 | 5 | PBIS Event Log client retries are an initiator or resource amplifier. | Thousands of errors make this material, but the write target is the local PBIS eventlog path rather than ISE/AD application data. It has no demonstrated dependency on Ignite or the Admin executor. | Compare its per-minute rate in healthy and degraded windows; capture PBIS `eventlog` service/socket state and the immediately preceding AD-agent messages. |
 | 6 | Rare Analytics-enabled 3.3 state survives restore and activates a defective 3.5 consumer or unusual migrated data path. | Plausible unique variable. Enablement uses existing tables rather than schema DDL; 3.5 has explicit Analytics migration handlers. Disabled restore control is healthy. | Restore the affected enabled backup as Run C and compare rows, handlers, Data Grid behavior, and 72-hour load with Runs A/B. Then use Cisco-supported disablement for Run D. |
 | 7 | A general 3.3-to-3.5 schema migration defect causes the incident. | Weakened by the successful Analytics-disabled 3.3→3.5 control, but data-volume/object-specific defects remain possible. | Compare affected versus control migration warnings, object counts, and state. |
@@ -387,8 +392,10 @@ container/cgroup details.
    counters, worker count, connections, and restart count.
 5. Preserve the complete kernel OOM record, including cgroup path and killed
    process.
-6. Capture active platform profile and generated values for Kong memory, Data
-   Grid RAM, and Admin max threads on PPAN and SPAN.
+6. Capture `show inventory` and the `Profile :` line from supported
+   `show tech-support` on every node. Ask TAC to capture generated values for
+   Kong memory, Data Grid RAM, and Admin max threads, plus runtime container
+   limits.
 7. Probe the PPAN and SPAN directly during the same minute. Record whether only
    the PPAN, both PANs, or the shared VIP is slow.
 8. Record active Admin sessions, external API clients, scheduled jobs/reports,

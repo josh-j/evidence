@@ -401,6 +401,13 @@ nodes, the complete OOM cgroup/victim lines, and runtime container limits. A
 Cisco-supported VM shape or TAC-supported correction should be used for any
 remediation; generated properties must not be edited manually.
 
+Production is not rooted. Rooted lab inspection shows that the supported
+`show tech-support` implementation calls the same platform-property reader and
+prints `Profile : <name>` under `Displaying ISE Profile`; a support bundle has a
+show-tech area. Therefore the profile can be confirmed without unsupported
+access. Generated-property and live container-limit confirmation should be
+requested from TAC using the production support bundle.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 
