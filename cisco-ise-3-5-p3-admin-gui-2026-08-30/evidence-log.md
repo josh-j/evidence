@@ -673,6 +673,32 @@ or continued failure after it stops places the client downstream of the root
 fault. A source can also trigger sticky Data Grid state, so lack of immediate
 recovery after blocking it does not alone exclude an initiating role.
 
+## 2026-08-30 — ACAS SSH failures scoped
+
+ACAS failing SSH hundreds of times does not directly use Kong, Tomcat 9443,
+jsvc, or `admin-http-pool`; it reaches the separate ADE-OS sshd service. The
+rooted control uses three authentication attempts, a 60-second login grace, and
+`MaxStartups 10:30:100`, which begins dropping unauthenticated connections
+probabilistically above ten concurrent sessions. Hundreds spread through a
+scan are mainly log/authentication noise; high concurrency can add host
+cryptographic, PAM, process, memory, and logging load, which should appear as
+sshd/kernel rather than jsvc CPU.
+
+The more important test is whether the same ACAS schedule also probes 443 or
+other application ports. Web/TLS plugins can reach Kong and a catch-all GUI
+route can consume Admin workers. Kong access/error logs must be searched for
+the ACAS IP, including handshake failures that have no HTTP status. ERS,
+OpenAPI, pxGrid, and portal destinations use different pools and must not be
+misclassified as Admin traffic.
+
+Patch 3 support bundles include `/var/log/*` under `adeos/` when System logs are
+selected and gateway logs under `logs/apigateway/`. Align ACAS attempts and
+destination ports per minute with the first 10800 refusal, Admin threshold, and
+jsvc rise. An approved exclusion window followed by SSH-only versus HTTPS-only
+testing can determine causality. The invalid scanner credential should be
+fixed even if unrelated, because it risks CLI lockout and obscures genuine
+attack evidence.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

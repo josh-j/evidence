@@ -338,6 +338,50 @@ If traffic removal stops new requests but does not restore an already-missing
 Data Grid listener, the source may have triggered a sticky server failure and a
 restart/reset can still be required.
 
+### ACAS repeatedly failing SSH authentication
+
+ACAS/Tenable attempting SSH on TCP 22 reaches ADE-OS `sshd`, not Kong 443 or
+Tomcat 9443. Failed SSH authentications therefore do not directly create
+`admin-http-pool` threads and do not execute inside jsvc. On the rooted control,
+sshd runs in `system.slice/sshd.service` while jsvc is a separate Application
+Server process/cgroup. The effective SSH controls are `MaxAuthTries 3`,
+`LoginGraceTime 60`, and `MaxStartups 10:30:100`: after ten concurrent
+unauthenticated connections sshd begins probabilistic dropping, reaching full
+drop at 100.
+
+The total “hundreds” is less important than rate and concurrency. Hundreds
+spread over a scan window normally create authentication logs and modest
+key-exchange/PAM/process work. Hundreds of simultaneous or rapidly reconnecting
+sessions can consume sshd CPU, memory, process slots, cryptography, and log I/O,
+but `tech top` should then expose sshd/kernel work rather than attributing the
+load primarily to jsvc. SSH failures also do not explain a Kong-container
+1,536-MiB cgroup OOM or a local Ignite 10800 refusal directly.
+
+The stronger concern is that the same ACAS job may scan HTTPS 443 and other ISE
+application ports in addition to SSH. TLS/web vulnerability plugins, login
+tests, crawling, or repeated malformed HTTP requests can reach Kong and, for
+GUI/catch-all paths, consume Admin workers. TLS handshakes that fail before an
+HTTP status may appear only in Kong `error.log`; HTTP failures should appear in
+the error-filtered access log. Also check 9060/ERS, 9070/OpenAPI, 8910/8911
+pxGrid, and portal ports so the destination is mapped to the correct process.
+
+Patch 3 support bundles include `/var/log/*` under `adeos/` when System logs are
+selected, so SSH events from `secure`, `messages`, `btmp`, and related files can
+be aligned with `logs/apigateway/access.log*`, `error.log*`, `console.log`, and
+`ise-ignite.log`. For the ACAS source address, calculate per-minute attempts,
+concurrent connections, destination ports, and Kong paths/statuses. Search SSH
+logs for MaxStartups throttling/drops and separate authentication failure from
+KEX/banner/protocol negotiation failure.
+
+The causal test is a scheduled scan window with ISE excluded or with only the
+misconfigured SSH credential check disabled, under the scanner owner's change
+control. If SSH events vanish but Admin/10800 behavior is unchanged, SSH is
+noise. If excluding all ACAS traffic prevents the incident, re-enable or test
+SSH-only and HTTPS-only separately; that distinguishes SSH host pressure from
+web/API pressure. Fix the invalid credential regardless, because it can lock
+the CLI account or conceal real authentication attacks even if it is unrelated
+to GUI performance.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at
