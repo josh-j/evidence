@@ -1030,3 +1030,34 @@ state. The first `IgniteClientPool` refusal, local 10800 loss, Data Grid state
 transition, CPU step, first Admin threshold alert, and first user-observed slow
 page must be distinguished. A fault beginning earlier and becoming visible at
 15:00–16:00 would otherwise be misclassified as an afternoon trigger.
+
+## 2026-08-30 — Environment-specific precondition favored
+
+**Source:** operator inference, current public Cisco 3.5 Patch 3 release notes,
+local control restore, and accumulated incident evidence
+
+**Provenance:** Inference; no complete production first-failure capture or TAC
+defect inventory
+
+Given the severity of the failure, broad use of ISE 3.5, and no matching public
+Patch 3 caveat found, an environment-specific precondition is now the strongest
+prior. This is distinct from saying the entire mechanism is site-specific. A
+rare local trigger can remove or wedge Data Grid, while the verified Patch 3
+serialized Ignite-client retry path generically amplifies it into Admin-pool
+saturation and Kong pressure.
+
+The direct evidence ranks PAN-local Data Grid runtime/persistence/listener or
+inter-node topology/connectivity first. Rare Analytics-enabled 3.3 state,
+production-only Admin/legacy API and scanner/integration traffic, co-located
+PAN/MnT/PSN workload under the generated `sns3815` limits, and another
+restored-data/population edge case follow. Hyper-V storage and NUMA remain
+lower because measured resource behavior does not correlate with onset. The
+healthy Analytics-disabled control rules out neither Analytics-enabled state
+nor production topology, but it does show that base 3.5 and a generic 3.3
+configuration restore are not sufficient in that control.
+
+Absence from public release notes is not negative proof. Cisco release notes
+are not a complete TAC case inventory, the release is newer than the 3.3
+branch, and rare-condition defects can remain unpublished. The lab program
+should therefore isolate the production precondition while TAC evaluates the
+resulting 3.5 failure handling as a possible product defect.

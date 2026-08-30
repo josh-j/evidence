@@ -454,6 +454,34 @@ Sources: [Cisco ISE 3.3 release notes](https://www.cisco.com/c/en/us/td/docs/sec
 [Cisco ISE 3.5 release notes](https://www.cisco.com/c/en/us/td/docs/security/ise/3-5/release_notes/cisco-ise-release-notes-35.html),
 and [Cisco field notice FN74403](https://www.cisco.com/c/en/us/support/docs/field-notices/744/fn74403.html).
 
+### Environment-specific trigger versus product defect
+
+The severity, apparent rarity, and absence of a matching public 3.5 Patch 3
+caveat make an environment-specific precondition the strongest prior. This does
+not require the full failure mechanism to be unique. A production-specific
+condition can make local Data Grid unavailable, while Patch 3's serialized
+client retries and weak Admin-plane fault containment turn that condition into
+a general product-level failure cascade.
+
+The leading environment-specific inputs are, in order of current evidence:
+
+1. PAN-local Data Grid runtime, persistence, listener, or inter-node topology/
+   connectivity state;
+2. rare Analytics-enabled configuration/database state migrated from 3.3;
+3. production-only Admin/legacy API, Catalyst Center/DNA, scanner, report, or
+   browser workload that triggers or sustains the state;
+4. co-located PAN/MnT/PSN roles operating within the generated `sns3815`
+   Data Grid and Kong limits;
+5. another restored-data edge case or unusually large endpoint/profile/session
+   population.
+
+Hyper-V NUMA and storage remain lower because no correlated resource anomaly
+has been shown. The healthy Analytics-disabled 3.3-to-3.5 restore control also
+argues against base 3.5, every restore, or the golden-image procedure being
+sufficient by itself. Public release-note silence is only supporting prior
+evidence: TAC-only defects, unreported cases, and a new defect with a rare
+precondition remain possible.
+
 ### Supported by evidence
 
 - The incident disproportionately affects the Admin/control plane while authentication remains operational.
