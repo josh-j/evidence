@@ -96,6 +96,8 @@ At baseline and at short intervals around onset, capture:
 - Kong container `memory.current`, `memory.max`, `memory.events`, OOM counters, and restart count (Cisco TAC/root collection).
 - Active GUI sessions, source addresses, API clients, reports, and scheduled jobs.
 - Authentication latency and success rate.
+- `ad_agent.log` write-failure rate per minute, including a healthy baseline,
+  plus the preceding/following AD-agent messages.
 
 Capture a working thread dump with an alternative supported method before saturation if the ISE-generated dump remains blank.
 
@@ -154,6 +156,21 @@ Compare the onset against:
   and Hyper-V event correlation before classifying any event as a true panic.
 - Treat an OOM-killer event and a kernel panic as distinct unless evidence
   explicitly joins them.
+
+### Classify the AD-agent eventlog failure
+
+- Treat `Failed to write records error code [1]` as PBIS Event Log client
+  failure, not an Oracle/Ignite/AD-object write, unless a different full stack
+  proves otherwise.
+- Ask Cisco TAC to capture `lwsm` status for PBIS `eventlog`, local
+  `/var/lib/pbis/.eventlog` socket state, eventlog diagnostics, and relevant
+  cgroup/process resource use on the affected 3.5 nodes.
+- Compare counts per minute before, during, and after GUI degradation. A
+  constant healthy-state rate favors incidental noise; a transition at onset
+  favors a shared trigger or resource-amplifying retry storm.
+- Confirm whether successful RADIUS/TACACS requests during the incident used AD
+  as their identity source. Non-AD authentication success does not validate
+  PBIS/LSASS health.
 
 ## Decision criteria
 

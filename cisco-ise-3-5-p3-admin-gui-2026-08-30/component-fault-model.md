@@ -70,7 +70,56 @@ CPU, memory, storage, or kernel failure during the long GUI-only interval.
 | `IgniteStateMonitorThread` | Checks cluster membership/state and attempts resiliency/activation work. | Exact Patch 3 bytecode starts after 60 seconds and uses fixed-delay scheduling: every 30 seconds on primary/standalone nodes and 60 seconds on secondary nodes. The primary path calls `getUIClient()`. On errors it can reinitialize the client pool. | A persistent local refusal causes a fresh multi-attempt creation cycle on each run and repeated client-pool resets/reinitialization. |
 | `IgniteEventListenerThread` | Polls the Data Grid event cache used by Admin-node notification/application handling. | Exact Patch 3 bytecode runs on PAP nodes after 60 seconds, then every 30 seconds with fixed delay, and calls `getEventListenerClient()`. | It supplies a second repeating client-creation caller which shares the client-pool class lock with the state monitor and GUI callers. |
 | Data Grid reset/reconfiguration | Rebuilds the local Data Grid runtime and persisted state. | Patch 3 `ignite-control.sh` stops/removes the container and image and deletes persisted Data Grid data, work database, snapshots, diagnostics, and lock state before rebuilding. | It can clear corruption, stale topology, or incompatible durable state. Improvement after a reset is meaningful but not causal proof when other settings were changed concurrently. |
+| AD Agent / PBIS runtime | Joins ISE to AD and supplies DC discovery, Kerberos/NTLM, user/group lookup, and machine-account behavior. It also attempts to emit local audit/event records. | Patch 3 contains BeyondTrust PBIS/AD Runtime 7.1.1. The exact `Failed to write records. Error code [%d]` string is in `libeventlog.so` and `libeventlog_norpc.so` beside `LwEvtWriteRecords`, `LwmEvtWriteRecords`, `localhost`, and local endpoint `/var/lib/pbis/.eventlog`. | This exact message is a failure of the PBIS Event Log client path. It is not by itself a failure to write AD objects, ISE Oracle configuration, or Ignite data. Persistent failure can still create a native retry/logging storm. |
 | Protocols Engine | Handles RADIUS/TACACS policy traffic. | It is a distinct ISE process/path from Kong and the Admin connector. | It can remain healthy through Admin-plane saturation, matching production. |
+
+## What `ad_agent: failed to write records error code [1]` is writing
+
+Production reportedly has thousands of these messages. Exact Patch 3 binaries
+resolve the call as PBIS Event Log API `LwEvtWriteRecords`. The intended path is:
+
+```text
+ISE AD/PBIS operation
+       |
+       v
+PBIS libeventlog client
+       |
+       +-- local LWMSG endpoint /var/lib/pbis/.eventlog
+       `-- localhost RPC compatibility path
+                    |
+                    v
+          PBIS eventlog service
+                    |
+                    v
+          local PBIS event database
+```
+
+BeyondTrust's AD Bridge diagnostics likewise describe `eventlog-cli ...
+localhost`, `lwsm status eventlog`, and a local event database. On the rooted
+ISE 3.3 control, `lwsmd` runs registry, LSASS, I/O, netlogon, redirector, and
+NTLM services, but `lwsm list` shows no `eventlog` service and `ss` shows no
+`/var/lib/pbis/.eventlog` socket. This suggests ISE's packaged PBIS runtime may
+retain an event-emission call while omitting or disabling the general PBIS
+Event Log service. The production 3.5 node must be checked directly before
+calling that behavior expected or defective.
+
+Code `1` is not sufficiently descriptive to identify the precise lower-level
+reason from the log line alone; the library logs only the numeric return from
+the eventlog API. It should not be interpreted as an Oracle, Ignite, or AD
+server error code.
+
+The error volume matters, but its timing determines its role:
+
+- If the same rate exists while the GUI is healthy, it is probably noisy AD
+  audit-path failure and a background load contributor, not the initiator.
+- If it starts at the first Ignite/Kong/Admin transition and stops after an
+  application restart, it becomes part of the shared retry/backpressure loop.
+- If AD joins, DC discovery, group lookup, or AD-authentication latency also
+  fail, investigate PBIS/LSASS more broadly. Healthy RADIUS/TACACS alone is not
+  enough when those authentications may use non-AD identity sources; identify
+  whether production's successful requests actually exercised AD.
+- Because this is native PBIS code, it does not directly explain Java
+  `char[]` CPU. It can indirectly add CPU, disk logging, and service pressure.
 
 ## Exact Ignite retry amplification
 
@@ -216,10 +265,11 @@ not use “kernel panic” as the explanation for the Admin incident.
 | 2 | 09:00 GUI/API demand triggers or magnifies a latent Admin/Data Grid failure. | Strong temporal fit; no request-source inventory yet. | Correlate first minute with Kong access logs, Admin sessions, API clients, scheduled reports, and page/URI latency. Temporarily remove one identified poller in a controlled window. |
 | 3 | Kong memory/worker pressure is an initiating or feedback-loop fault. | A 1.5-GiB cgroup OOM and worker errors are material, but the victim, cgroup, and ordering are missing. | Full OOM record, Kong cgroup counters, worker/connection counts, exact error, and timestamp preceding or following Ignite/Admin onset. |
 | 4 | ISE selected an undersized or unexpected platform profile. | The reported OOM limit exactly matches a Patch 3 profile value and may be surprising for 32 vCPU. This is a diagnostic lead, not proof. | Capture active profile, active `apigateway.memory`, active Data Grid RAM, generated Admin max threads, and container inspect values on each production node. |
-| 5 | Rare Analytics-enabled 3.3 state survives restore and activates a defective 3.5 consumer or unusual migrated data path. | Plausible unique variable. Enablement uses existing tables rather than schema DDL; 3.5 has explicit Analytics migration handlers. Disabled restore control is healthy. | Restore the affected enabled backup as Run C and compare rows, handlers, Data Grid behavior, and 72-hour load with Runs A/B. Then use Cisco-supported disablement for Run D. |
-| 6 | A general 3.3-to-3.5 schema migration defect causes the incident. | Weakened by the successful Analytics-disabled 3.3→3.5 control, but data-volume/object-specific defects remain possible. | Compare affected versus control migration warnings, object counts, and state. |
-| 7 | Hyper-V storage, vNUMA, or guest-wide resource exhaustion. | Low support: latency and general metrics are normal, VM fits vNUMA limits, and authentications remain healthy. | A time-aligned host/guest anomaly beginning before the Admin event. |
-| 8 | Kernel panic causes the recurring GUI-only slowdown. | Currently inconsistent with continued authentication and persistent GUI-only degradation. | Exact panic signature plus reboot/uptime break at the same onset. |
+| 5 | PBIS Event Log client retries are an initiator or resource amplifier. | Thousands of errors make this material, but the write target is the local PBIS eventlog path rather than ISE/AD application data. It has no demonstrated dependency on Ignite or the Admin executor. | Compare its per-minute rate in healthy and degraded windows; capture PBIS `eventlog` service/socket state and the immediately preceding AD-agent messages. |
+| 6 | Rare Analytics-enabled 3.3 state survives restore and activates a defective 3.5 consumer or unusual migrated data path. | Plausible unique variable. Enablement uses existing tables rather than schema DDL; 3.5 has explicit Analytics migration handlers. Disabled restore control is healthy. | Restore the affected enabled backup as Run C and compare rows, handlers, Data Grid behavior, and 72-hour load with Runs A/B. Then use Cisco-supported disablement for Run D. |
+| 7 | A general 3.3-to-3.5 schema migration defect causes the incident. | Weakened by the successful Analytics-disabled 3.3→3.5 control, but data-volume/object-specific defects remain possible. | Compare affected versus control migration warnings, object counts, and state. |
+| 8 | Hyper-V storage, vNUMA, or guest-wide resource exhaustion. | Low support: latency and general metrics are normal, VM fits vNUMA limits, and authentications remain healthy. | A time-aligned host/guest anomaly beginning before the Admin event. |
+| 9 | Kernel panic causes the recurring GUI-only slowdown. | Currently inconsistent with continued authentication and persistent GUI-only degradation. | Exact panic signature plus reboot/uptime break at the same onset. |
 
 ## Minimum decisive production capture
 
@@ -246,6 +296,10 @@ container/cgroup details.
    the PPAN, both PANs, or the shared VIP is slow.
 8. Record active Admin sessions, external API clients, scheduled jobs/reports,
    and authentication rate around 08:45–09:15.
+9. Count `ad_agent.log` write failures per minute in both healthy and degraded
+   windows. Have TAC capture PBIS `lwsm` service state, `.eventlog` socket
+   presence, local eventlog diagnostics, and whether successful policy
+   authentications actually used AD.
 
 The alert recurring every 15 minutes should initially be treated as alarm
 evaluation/reporting cadence. Do not infer a 15-minute initiating job without

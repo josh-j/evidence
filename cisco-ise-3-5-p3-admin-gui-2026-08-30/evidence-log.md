@@ -400,3 +400,36 @@ production's persistent thousands-of-errors interval.
 Run C was not fabricated. It remains staged behind the affected
 Analytics-enabled 3.3 configuration-only backup and its separately transferred
 encryption key.
+
+## 2026-08-30 — AD-agent write target identified
+
+**Source:** affected-environment operator, exact ISE 3.5 Patch 3 AD Runtime RPMs,
+rooted ISE 3.3 PBIS runtime, and BeyondTrust AD Bridge diagnostics
+
+**Provenance:** Production volume reported; write-path identity verified locally
+
+The operator clarified that `ad_agent.log` contains thousands of `Failed to
+write records error code [1]` messages, rather than an occasional warning.
+
+Patch 3 contains PBIS/AD Runtime 7.1.1. The exact error string resides in
+`libeventlog.so` and `libeventlog_norpc.so`, adjacent to the API symbols
+`LwEvtWriteRecords`/`LwmEvtWriteRecords`, `localhost`, and local endpoint
+`/var/lib/pbis/.eventlog`. This identifies the failed write as PBIS audit/event
+emission toward its local Event Log service/database. It is not direct evidence
+that the AD agent cannot write AD objects, ISE configuration in Oracle, or Data
+Grid state.
+
+The rooted 3.3 control runs PBIS registry, LSASS, I/O, netlogon, redirector, and
+NTLM services. It has corresponding local sockets but no `eventlog` service in
+`lwsm list` and no `.eventlog` socket. That makes an omitted/disabled local
+eventlog service a plausible explanation for this class of error, although the
+affected 3.5 node must be checked directly. Numeric code `1` alone does not
+resolve the lower-level reason.
+
+The error storm can contribute native CPU and log I/O but has no demonstrated
+direct link to Ignite or `admin-http-pool`, and it does not explain Java
+`char[]` CPU directly. Its causal weight now depends on per-minute healthy
+versus degraded rates and first-occurrence ordering. Healthy authentication is
+consistent with failure of this audit path; production must still confirm
+whether successful authentications exercised AD rather than another identity
+source.

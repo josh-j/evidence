@@ -93,7 +93,7 @@ The documented error ordering is a **reported correlation**, not a proven causal
 
 ### Other observations
 
-- `ad_agent.log`: `failed to write records error code [1]`; Cisco-specific meaning unresolved.
+- `ad_agent.log`: thousands of `failed to write records error code [1]` messages. Exact Patch 3 binaries identify this as PBIS Event Log API failure toward the local eventlog service/database, not a direct Oracle, Ignite, or AD-object write. The lower-level meaning of numeric code `1` remains unresolved.
 - `dblock.log`: no persistent database-lock failure; queue locks around eight seconds observed.
 - `ise-psc.log`: no obvious slow replication, queue-link, major timeout, or resource failure.
 - ISE-generated thread dump was blank or whitespace-only.
@@ -168,7 +168,7 @@ The local 3.3 lab currently reports Analytics `DISABLED` and has no Analytics ro
 - ISE 3.5 deleted the legacy `UPSMNTANALYTICSSETTINGS` row and successfully ran 50 global-data handlers, including dedicated miscellaneous-license, monitoring-analytics, and Node Exporter handlers.
 - The monitoring-analytics handler observed Monitoring and Log Analytics as disabled; the post-restore API still reports Analytics `DISABLED`.
 - The final restore wrapper returned `COMPLETED_WITH_FAILURE` while services were still starting, but all expected enabled services subsequently converged and the GUI login returned HTTP 200 in about 96 ms. The 8-vCPU/16-GiB one-off target is below production sizing, so this final readiness result is not evidence of the production defect.
-- No post-restore admin HTTP timeout or sustained Ignite failure signature was found. Six self-clearing Ignite connection refusals occurred during an earlier clean startup; production instead reports thousands during the persistent slow-GUI interval.
+- No post-restore admin HTTP timeout or sustained Ignite failure signature was found. Bounded self-clearing Ignite refusal cycles occurred during startup and a planned shutdown; production instead reports thousands during the persistent slow-GUI interval.
 
 ## Current conclusions
 
@@ -182,6 +182,7 @@ The local 3.3 lab currently reports Analytics `DISABLED` and has no Analytics ro
 - ISE 3.5 intentionally migrates Analytics-related state with versioned handlers; the disabled control remains disabled and does not reproduce the incident.
 - Patch 3 `IgniteClientPool` uses TLS `localhost:10800`; repeating, serialized retry cycles can amplify a local refusal into Admin-thread blocking.
 - Patch 3 imposes platform-profile-specific hard memory limits on the Kong container; 1,536 MiB exactly matches the reported cgroup limit.
+- The AD-agent write error comes from the native PBIS Event Log client path. Its volume may add retry/logging pressure, but it is not evidence that AD authentication state or ISE application data cannot be written.
 - Storage, VM-wide memory pressure, duplicate golden-image identity, and vNUMA have not been supported as primary causes by the evidence collected so far.
 
 ### Not yet established
@@ -193,6 +194,7 @@ The local 3.3 lab currently reports Analytics `DISABLED` and has no Analytics ro
 - Which process is killed by the 1.5-GiB cgroup OOM events.
 - Which platform profile and generated Kong/Data Grid/Tomcat limits are active on the production nodes.
 - Whether the reported kernel panic is a true panic, and whether it is a separate event; OOM-killer output alone is not a panic.
+- Whether the PBIS eventlog write-failure rate changes at GUI onset or is equally present during healthy operation.
 - Whether both PANs become slow at the same time.
 - Whether the 09:00 onset tracks GUI users, API polling, report generation, session cleanup, or another workday workload.
 
