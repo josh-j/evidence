@@ -376,6 +376,45 @@ The local 3.3 lab currently reports Analytics `DISABLED` and has no Analytics ro
 
 ## Current conclusions
 
+### Is 3.5 less robust than 3.3?
+
+Not as a general product conclusion. The evidence does support saying that ISE
+3.5 has **weaker fault containment for this particular Admin-plane failure
+mode**. The rooted 3.3 Patch 11 system has Kong and the same general
+Tomcat/Admin executor architecture, but no ISE Data Grid service. Data Grid is
+new in 3.5. It adds a persistent distributed Ignite member, inter-node
+47100/47500 dependencies, a local TLS 10800 connector, topology/baseline/
+rebalance behavior, and an Application Server client-construction path shared
+by Admin work and recurring monitors. A failure in that new dependency can be
+amplified into Admin-thread saturation while RADIUS/TACACS remains healthy.
+
+This makes 3.5 **architecturally more complex and potentially more brittle in
+the GUI/control plane when Data Grid is unhealthy**. It does not prove that
+3.5 is less reliable under normal operation, or that its policy-service plane
+is less robust. The observed authentication continuity is evidence of useful
+fault isolation in that plane.
+
+Release maturity is also a relevant but non-causal difference. ISE 3.3 was
+released in July 2023 and Patch 11 in April 2026; ISE 3.5 was released in
+September 2025 and Patch 3 in April 2026. Patch count is not a reliability
+metric, but 3.3 Patch 11 represents a longer-lived branch. Older 3.3 patches
+also had serious GUI/MnT memory defects: Cisco field notice FN74403 affected
+3.3 through Patch 4 and was fixed in Patch 5. Therefore the comparison is
+between a mature 3.3 Patch 11 system and a newer 3.5 architecture, not proof
+that 3.3 is intrinsically superior.
+
+For this incident, a precise regression statement becomes justified if a
+supported capture proves: Data Grid/inter-node or local 10800 failure precedes
+Admin saturation, the same workload is healthy on 3.3, and a clean 3.5 control
+does not fail unless the Data Grid condition or migrated production state is
+introduced. The Analytics-disabled 3.3-to-3.5 restore control remained healthy,
+so the current evidence does not yet distinguish a general 3.5 defect from a
+production-specific topology/runtime trigger or migrated enabled state.
+
+Sources: [Cisco ISE 3.3 release notes](https://www.cisco.com/c/en/us/td/docs/security/ise/3-3/release_notes/b_ise_33_RN.html),
+[Cisco ISE 3.5 release notes](https://www.cisco.com/c/en/us/td/docs/security/ise/3-5/release_notes/cisco-ise-release-notes-35.html),
+and [Cisco field notice FN74403](https://www.cisco.com/c/en/us/support/docs/field-notices/744/fn74403.html).
+
 ### Supported by evidence
 
 - The incident disproportionately affects the Admin/control plane while authentication remains operational.

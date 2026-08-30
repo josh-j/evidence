@@ -938,3 +938,31 @@ baseline adjustment, partition exchange/rebalance, PAN 10800 loss, first
 independent discriminator. If inter-node failure precedes local listener loss,
 this becomes a strong root-cause branch; if the listener disappears first, the
 trigger is PAN-local.
+
+## 2026-08-30 — 3.3 versus 3.5 robustness claim bounded
+
+**Source:** rooted 3.3 Patch 11 control, exact 3.5 Patch 3 artifacts, local
+cross-version restore experiment, and Cisco release/field-notice documentation
+
+**Provenance:** Architectural difference verified locally; general reliability
+comparison not established
+
+ISE 3.5 cannot be declared generally less robust from this incident. A narrower
+statement is supported: its Admin plane has a new failure and amplification
+path that the rooted 3.3 Patch 11 node does not have. ISE 3.5 adds persistent
+Data Grid/Ignite, 47100/47500 cluster dependencies, the local TLS 10800 client
+connector, and serialized client construction shared by Admin-dependent work
+and recurring monitors. Failure there can saturate the Admin plane while the
+separate Protocols Engine continues RADIUS/TACACS service. This is weaker fault
+containment for the demonstrated failure mode, not proof of worse normal-case
+or policy-service reliability.
+
+The comparison also pits a longer-lived 3.3 branch against a newer 3.5
+architecture. Cisco dates 3.3 GA to July 2023 and Patch 11 to April 2026, versus
+3.5 GA in September 2025 and Patch 3 in April 2026. Patch count alone does not
+measure quality, and 3.3 had serious earlier defects: field notice FN74403
+documents shared-memory allocation failures causing extreme GUI slowness and
+MnT/Application Server disruption through 3.3 Patch 4, fixed in Patch 5. The
+healthy Analytics-disabled restore control further prevents attributing the
+production incident to every 3.3-to-3.5 migration. Production chronology and
+the Analytics-enabled backup remain the discriminating evidence.
