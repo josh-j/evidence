@@ -306,9 +306,9 @@ Application:       running
 
 The task API reported task `d5e12d80-a471-11f1-bf6e-3266243fca15` as `COMPLETED_WITH_FAILURE`, matching restore history. The configuration/database migration remains present and queryable despite the final wrapper failure.
 
-Post-restore signature checks found no `java.net.SocketTimeoutException` or `admin-http-pool` entry in `console.log`. `ise-ignite.log` contained six `Failed to create Ignite client: Connection refused` retries at 12:11 UTC, before the control restore and during an earlier clean startup; no post-restore occurrence was found. These short startup retries did not produce the sustained GUI incident and should not be equated with the production report of thousands of recurring errors.
+Post-restore signature checks found no `java.net.SocketTimeoutException` or `admin-http-pool` entry in `console.log`. At the initial check, `ise-ignite.log` contained six `Failed to create Ignite client: Connection refused` retries at 12:11 UTC, before the control restore and during an earlier clean startup. A later planned offline snapshot shutdown produced one additional nine-attempt cycle from 14:18:55 through 14:19:19 UTC as Data Grid stopped before the Application Server. After restart, the state monitor reported the cluster `ACTIVE` and node `RUNNING` every 30 seconds through the end of the captured log, with no further refusal. These bounded lifecycle retries did not produce the sustained GUI incident and should not be equated with the production report of thousands of recurring errors.
 
-The operator reconfirmed that the affected production environment contains `IgniteStateMonitorThread-0` / `IgniteClientPool` `Failed to create Ignite client` errors **thousands of times** while the GUI is persistently slow. That volume and temporal correlation are materially different from this lab's six self-clearing startup retries. A useful discriminator for the affected cluster is therefore the error rate and retry duration, plus the exact refused destination IP/port—not the mere presence of a connection-refused line during startup.
+The operator reconfirmed that the affected production environment contains `IgniteStateMonitorThread-0` / `IgniteClientPool` `Failed to create Ignite client` errors **thousands of times** while the GUI is persistently slow. That volume and temporal correlation are materially different from this lab's bounded, self-clearing lifecycle retry cycles. A useful discriminator for the affected cluster is therefore the error rate and retry duration, plus the exact refused destination IP/port—not the mere presence of a connection-refused line during startup or shutdown.
 
 The operator also reports Kong worker-pool errors in the affected production environment. The precise message, log source, timestamps, pool occupancy, and relation to the Ignite/Admin failures have not yet been supplied. This is additional evidence of possible API-gateway/control-plane pressure, but it is not yet sufficient to place Kong before or after the initiating failure.
 
@@ -324,3 +324,79 @@ This control did not reproduce sustained Ignite failures, admin-threadpool exhau
 - Ideally, Cisco/TAC confirmation of the Analytics entitlement state and a supported disable or reissue procedure.
 - The old JWT only if Cisco authorizes its use and it remains valid; do not commit or log it.
 - Vendor authenticity/applicability verification for the archived ISO and patch remains open. Installation proceeded on the operator's explicit request using the locally recorded SHA-256 values; those hashes establish repeatability, not Cisco provenance.
+
+## 2026-08-30 — Admin-plane architecture and retry amplification resolved
+
+**Source:** rooted ISE 3.3 Patch 11, exact ISE 3.5 Patch 3 filesystem payload and Java bytecode, and live disposable target
+**Provenance:** Verified locally, with production causality still inferred
+
+Documented the end-to-end Admin path as public 443 through containerized
+Kong/nginx to Tomcat/jsvc 9443 and its `AdminExecutorPool` /
+`admin-http-pool`. RADIUS/TACACS use the separate Protocols Engine path, which
+explains why authentications can remain healthy during severe Admin-plane
+saturation.
+
+Exact Patch 3 `IgniteClientPool` bytecode establishes that the Application
+Server connects to TLS `localhost:10800`, not directly to another cluster node.
+It maintains main, UI, and event-listener clients; client construction is
+guarded by one class-wide monitor. The Cisco wrapper allows 10 attempts, with a
+3-second wait between attempts, while the Ignite client configuration has a
+300-second timeout, 3-second heartbeat, and retry limit 5.
+
+The exact state monitor starts after 60 seconds and runs with fixed delay every
+30 seconds on primary/standalone nodes or every 60 seconds on secondary nodes.
+The PAP event listener separately runs every 30 seconds and uses another client
+from the same class-wide pool lock. A persistent immediate connection refusal
+can therefore create about 27-second serialized retry cycles from two scheduled
+callers before any GUI demand is counted. This makes thousands of error lines
+and Admin-thread blocking mechanically plausible. It does not prove why the
+local 10800 listener is absent or whether that occurs before Kong/Admin
+pressure in production.
+
+Exact Patch 3 Data Grid files show Apache Ignite 2.16.0, persistent state/WAL
+under `/opt/ignite/data`, Oracle-backed discovery through `TBL_ADDRS`, and
+application caches for endpoint/profile, EDDA, endpoint-license, MFC, and event
+state. The Data Grid reset script removes the container/image and persisted
+Data Grid data, work database, snapshots, diagnostics, and lock data before
+rebuilding. The reset result is thus compatible with clearing durable Data Grid
+state, but remains confounded by the other production setting changes.
+
+Exact Patch 3 Kong control and platform files also resolve the reported OOM
+limit: `1572864 kB` is exactly 1,536 MiB, and `kong-control.sh` applies the
+active `apigateway.memory` as a hard container memory limit. Patch 3 assigns
+1,536 MiB to several small profiles but 12,288 MiB to
+`vm_standard3_flex_32`. The affected VM's 32 vCPU does not prove which profile
+ISE selected. The full OOM continuation, cgroup path/victim, and generated
+active profile values are now high-priority production captures.
+
+The reported kernel panic remains unverified and separate. An OOM-killer event
+is not a panic; a real panic should stop/reboot the whole guest and disrupt
+authentication. Exact panic text and uptime/Hyper-V evidence are required
+before relating it to the recurring GUI-only interval.
+
+The complete architecture, ranked hypotheses, discriminators, and minimum
+production capture are in [`component-fault-model.md`](component-fault-model.md).
+
+## 2026-08-30 — Disabled control preserved and healthy after restart
+
+**Source:** Incus, appliance CLI, and GUI probe
+**Provenance:** Verified locally
+
+Created snapshot `control-disabled-restored-p3` after the completed disabled
+control migration. The disposable target is running; Data Grid, Application
+Server, API Gateway database/service, M&T components, MFC Profiler, and
+Protocols Engine report running. The GUI returned HTTP 302 in approximately
+114 ms.
+
+The planned offline snapshot shutdown generated one bounded Ignite refusal
+cycle: the state monitor last reported `ACTIVE` at 14:18:25 UTC, then made nine
+failed attempts at approximately 3-second spacing from 14:18:55 through
+14:19:19 while the client pool/Application Server was closing. After restart,
+the state monitor reported cluster `ACTIVE` and the node `RUNNING` every 30
+seconds through 14:40:40, with no further refusal. This directly validates the
+Patch 3 retry timing and distinguishes a normal service-ordering race from
+production's persistent thousands-of-errors interval.
+
+Run C was not fabricated. It remains staged behind the affected
+Analytics-enabled 3.3 configuration-only backup and its separately transferred
+encryption key.

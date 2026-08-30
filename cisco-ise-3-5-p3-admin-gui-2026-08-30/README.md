@@ -12,6 +12,22 @@ An ISE application restart promptly restores GUI performance. A Data Grid reset/
 
 The old Analytics enablement is a credible migration variable worth isolating. Rooted 3.3 inspection shows that enabling it writes application data to existing licensing tables and requests entitlement reporting; it does not execute schema DDL in the enablement path. The completed Analytics-disabled control restore proves that ISE 3.5 runs dedicated miscellaneous-license, monitoring-analytics, and Node Exporter migration handlers. The remaining risk is migrated **enabled data or feature state interacting with a 3.5 consumer or migration defect**, rather than the act of enabling Analytics having altered the 3.3 database schema.
 
+Exact Patch 3 bytecode now supplies a concrete saturation mechanism. The
+Application Server's Ignite clients connect to `localhost:10800`; client
+creation is serialized by one class-wide lock and can make 10 attempts with
+3-second pauses. On a primary Admin node, both the state monitor and event
+listener repeat every 30 seconds. A persistent local refusal can therefore
+produce thousands of errors and hold Data Grid-dependent GUI requests behind
+roughly 27-second retry cycles. Production evidence must still establish why
+the local listener becomes unavailable and whether that precedes Kong/Admin
+pressure.
+
+The reported 1,572,864-kB OOM limit exactly equals 1,536 MiB. Patch 3 applies
+`apigateway.memory` as the Kong container's hard limit, and 1,536 MiB is a real
+Patch 3 profile value. The full OOM cgroup/victim and production's active
+platform properties are required to determine whether Kong actually hit this
+limit and whether ISE selected an unexpected profile for the 32-vCPU VM.
+
 ## Affected environment — reported
 
 - Cisco ISE 3.5 Patch 3.
@@ -164,6 +180,8 @@ The local 3.3 lab currently reports Analytics `DISABLED` and has no Analytics ro
 - A configuration backup can carry that data into the restore workflow.
 - Enabling Analytics does not appear to alter the 3.3 table schema directly.
 - ISE 3.5 intentionally migrates Analytics-related state with versioned handlers; the disabled control remains disabled and does not reproduce the incident.
+- Patch 3 `IgniteClientPool` uses TLS `localhost:10800`; repeating, serialized retry cycles can amplify a local refusal into Admin-thread blocking.
+- Patch 3 imposes platform-profile-specific hard memory limits on the Kong container; 1,536 MiB exactly matches the reported cgroup limit.
 - Storage, VM-wide memory pressure, duplicate golden-image identity, and vNUMA have not been supported as primary causes by the evidence collected so far.
 
 ### Not yet established
@@ -173,6 +191,8 @@ The local 3.3 lab currently reports Analytics `DISABLED` and has no Analytics ro
 - Whether Ignite connection failures initiate the slowdown or are downstream retries.
 - Whether the reported Kong worker-pool errors precede, coincide with, or follow Admin and Ignite saturation.
 - Which process is killed by the 1.5-GiB cgroup OOM events.
+- Which platform profile and generated Kong/Data Grid/Tomcat limits are active on the production nodes.
+- Whether the reported kernel panic is a true panic, and whether it is a separate event; OOM-killer output alone is not a panic.
 - Whether both PANs become slow at the same time.
 - Whether the 09:00 onset tracks GUI users, API polling, report generation, session cleanup, or another workday workload.
 
@@ -184,4 +204,5 @@ Do not bypass JWT verification, patch the license handler, write Analytics rows 
 
 - [`evidence-log.md`](evidence-log.md) — provenance-aware inventory and dated findings.
 - [`experiment-plan.md`](experiment-plan.md) — controlled restore comparison and incident capture plan.
+- [`component-fault-model.md`](component-fault-model.md) — rooted/static component architecture, retry amplification, OOM interpretation, and ranked hypotheses.
 - [`media-manifest.md`](media-manifest.md) — canonical media locations, byte counts, and SHA-256 values.

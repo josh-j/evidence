@@ -1,0 +1,295 @@
+# ISE 3.5 Patch 3 Admin-plane component and fault model
+
+Date: 2026-08-30
+
+Status: evidence-backed working model; production initiator not yet proven
+
+## What this model can and cannot establish
+
+The available evidence is sufficient to explain **how** one unavailable local
+Data Grid endpoint can turn into recurring Ignite errors, blocked Admin
+requests, thread-pool alerts, Kong pressure, and a very slow GUI while
+RADIUS/TACACS continue to work. It is not yet sufficient to prove what makes
+the Data Grid endpoint unavailable in production, or whether Ignite is the
+first failing component rather than one participant in a feedback loop.
+
+The model below distinguishes:
+
+- **Verified locally:** rooted ISE 3.3 Patch 11 observations or exact ISE 3.5
+  Patch 3 files/bytecode from the archived patch.
+- **Reported:** observations from the affected production cluster.
+- **Inference:** a causal interpretation that needs production timing or a
+  controlled experiment.
+
+## Request and service topology
+
+```text
+Admin browser / Admin API client
+                |
+              TCP 443
+                v
+Kong API gateway container
+  nginx/OpenResty master + workers
+  hard platform-profile memory limit
+                |
+       GUI catch-all upstream
+                v
+Tomcat/jsvc HTTPS connector :9443
+  AdminExecutorPool
+  thread prefix: admin-http-pool
+                |
+        application handlers
+      /          |           \
+ Oracle DB   local Ignite   other ISE services
+                 TLS client
+              localhost:10800
+                    |
+           ISE Data Grid container
+       Ignite discovery/cluster/WAL/cache
+          47500 / 47100 / persistent data
+
+RADIUS/TACACS clients
+        |
+        v
+Protocols Engine / policy-service path
+```
+
+The separate policy-service path explains why healthy RADIUS/TACACS does not
+contradict severe Admin GUI failure. It is strong evidence against guest-wide
+CPU, memory, storage, or kernel failure during the long GUI-only interval.
+
+## Component purposes and verified implementation
+
+| Component | Purpose | Verified implementation facts | What failure looks like |
+|---|---|---|---|
+| Kong API Gateway | Terminates the public Admin/API connection and routes it to ISE services. | On the rooted 3.3 node it is a containerized Kong/nginx/OpenResty service. Public 443 maps to Kong 8443; the GUI catch-all routes to Tomcat 9443. The observed GUI upstream has a 60-second connect timeout, very long read/write timeouts, and five retries. Exact 3.5 Patch 3 control scripts impose `apigateway.memory` as a hard container memory limit. | Worker/connection pressure, upstream timeout errors, 5xx responses, or a container-cgroup OOM. These can originate in Kong or be downstream backpressure from Tomcat. |
+| Tomcat/jsvc Application Server | Runs the ISE Admin web application and application APIs. | On the rooted 3.3 node, connector 9443 uses executor `AdminExecutorPool` and threads named `admin-http-pool`. Exact Patch 3 profile settings permit 100–800 Admin threads depending on the active platform profile; `vm_standard3_flex_32` specifies 800. The active production profile and generated value are not known. | Requests remain busy waiting on DB, Ignite, remote services, locks, or serialization. The busy threshold is crossed; later requests queue or time out. More threads do not repair the blocked dependency. |
+| `CharacterEncodingFilter` | Applies character-encoding behavior as a servlet filter around Admin requests. | It is part of the common request stack. | Its presence in a blocked request stack identifies the request path, not the operation consuming time. It is not evidence that encoding is the root cause. |
+| ISE Data Grid / Apache Ignite | Holds shared, persistent application cache/state and distributes it between eligible ISE nodes. | Patch 3 ships Apache Ignite 2.16.0 as `ise-ignite-container`. It persists Data Grid state/WAL under `/opt/ignite/data`. Its exact configuration includes endpoint/profile state (`EDF2EndPoint`), EDDA integration data (`UPSEddaData`), endpoint license state (`EndPointLicenseInfo`), MFC endpoint cache, and event data. Discovery is Oracle-backed through `TBL_ADDRS`. | Local listener absent, inactive cluster, TLS/config problem, stale discovery/topology, persistence/WAL defect, or resource exhaustion. Application clients fail and Data Grid-dependent application work blocks or errors. |
+| `IgniteClientPool` | Gives the Application Server three on-demand thin clients: main, UI, and event-listener clients. | Exact Patch 3 bytecode connects only to TLS `localhost:10800`; client timeout is 300,000 ms, heartbeat 3 seconds, Ignite retry limit 5, and Cisco wrapper maximum retries 10. Failed wrapper retries pause 3 seconds. Client construction is guarded by one class-wide monitor shared by main, UI, and event-listener clients. | `Failed to create Ignite client ... Connection refused`. Ten rapid-refusal attempts consume about 27 seconds of retry sleeps. Other callers that need client construction wait behind the same monitor. |
+| `IgniteStateMonitorThread` | Checks cluster membership/state and attempts resiliency/activation work. | Exact Patch 3 bytecode starts after 60 seconds and uses fixed-delay scheduling: every 30 seconds on primary/standalone nodes and 60 seconds on secondary nodes. The primary path calls `getUIClient()`. On errors it can reinitialize the client pool. | A persistent local refusal causes a fresh multi-attempt creation cycle on each run and repeated client-pool resets/reinitialization. |
+| `IgniteEventListenerThread` | Polls the Data Grid event cache used by Admin-node notification/application handling. | Exact Patch 3 bytecode runs on PAP nodes after 60 seconds, then every 30 seconds with fixed delay, and calls `getEventListenerClient()`. | It supplies a second repeating client-creation caller which shares the client-pool class lock with the state monitor and GUI callers. |
+| Data Grid reset/reconfiguration | Rebuilds the local Data Grid runtime and persisted state. | Patch 3 `ignite-control.sh` stops/removes the container and image and deletes persisted Data Grid data, work database, snapshots, diagnostics, and lock state before rebuilding. | It can clear corruption, stale topology, or incompatible durable state. Improvement after a reset is meaningful but not causal proof when other settings were changed concurrently. |
+| Protocols Engine | Handles RADIUS/TACACS policy traffic. | It is a distinct ISE process/path from Kong and the Admin connector. | It can remain healthy through Admin-plane saturation, matching production. |
+
+## Exact Ignite retry amplification
+
+For an `IgniteClientPool` stack reporting `Connection refused`, the exact Patch
+3 destination is `localhost:10800`. A refusal means the TCP stack found no
+accepting listener at that instant. It is different from a discovery failure on
+47500 or a cluster-communication failure on 47100, although those server-side
+failures can be why the 10800 thin-client listener is unavailable.
+
+The Patch 3 sequence is:
+
+1. A state-monitor, event-listener, or application request asks for a client.
+2. If its client is absent/inactive, it enters the one class-wide synchronized
+   construction section.
+3. Cisco's wrapper makes as many as 10 creation attempts. With immediate TCP
+   refusals there are nine 3-second waits, or about 27 seconds, plus overhead.
+4. A failed state-monitor run finishes, waits its configured 30 seconds, then
+   repeats. The PAP event listener has its own 30-second schedule and repeats
+   the same behavior.
+5. GUI requests requiring Data Grid work wait for the same construction lock.
+   After obtaining it they may perform their own failed retry cycle.
+6. Under concurrent 09:00 GUI/API demand, blocked Admin threads accumulate much
+   faster than they retire. Threshold alerts and end-to-end timeouts follow.
+
+Two scheduled callers alone can produce roughly 20 error lines per combined
+retry round. Over hours, “thousands” is therefore plausible without thousands
+of independent root failures. The production error count proves persistence
+and amplification; it does not measure the number of listener outages.
+
+The 300-second Ignite client timeout can make non-refusal failure modes much
+longer. An immediate `Connection refused` normally returns quickly, leaving the
+explicit 3-second retry waits as the dominant delay.
+
+## Working failure propagation model
+
+The best-supported propagation model is:
+
+```text
+Trigger or initiating defect
+  - local Data Grid container/listener becomes unavailable, or
+  - durable cluster/cache state makes it restart/inactivate, or
+  - work-hour Admin/API demand reaches a latent failure
+                         |
+                         v
+localhost:10800 refuses IgniteClientPool connections
+                         |
+                         v
+30-second state monitor + 30-second PAP event listener
+perform 10-attempt serialized client creation cycles
+                         |
+                         v
+Data Grid-dependent GUI requests queue behind the same lock
+and/or repeat the same retry work
+                         |
+                         v
+admin-http-pool busy threads accumulate
+                         |
+                         +--> threshold alert evaluation repeats
+                         +--> console read timeouts / slow pages
+                         +--> jsvc CPU and allocation/logging increase
+                         |
+                         v
+Kong workers retain slow upstream requests and gateway memory grows
+                         |
+                         v
+Kong worker errors and possibly its cgroup OOM
+```
+
+This ordering is an inference. Kong pressure could instead be the initiating
+fault, or both components could be driven by the same 09:00 request source.
+Only first-occurrence timestamps and live listener/cgroup state can order them.
+
+`java char[]` CPU is compatible with JSON/HTML serialization, exception and
+stack-trace formatting, logging, or repeated request handling. It does not
+select one of those causes by itself.
+
+## Kong/nginx OOM interpretation
+
+The reported values are exact:
+
+```text
+mem   1572864 kB
+limit 1572864 kB
+```
+
+1,572,864 KiB is 1,536 MiB. Exact Patch 3 scripts read
+`apigateway.memory` from the active platform properties and pass it to the
+container runtime as a hard memory limit. Exact Patch 3 profiles that assign
+1,536 MiB include several small physical/cloud/VM profiles. Other profiles
+assign more; for example:
+
+| Patch 3 profile | Kong limit |
+|---|---:|
+| `vm_standard3_flex_4` | 1,536 MiB |
+| `vm_standard3_flex_8` | 3,072 MiB |
+| `vm_standard3_flex_16` | 6,144 MiB |
+| `vm_standard3_flex_32` | 12,288 MiB |
+| `sns3595` | 3,072 MiB |
+
+This makes a Kong/nginx container OOM technically credible and makes the
+production node's **active platform profile** a high-value check. A 32-vCPU VM
+does not prove that ISE selected `vm_standard3_flex_32`; the generated active
+properties must be read. If the OOM cgroup is Kong and its active limit is only
+1,536 MiB, determine why ISE selected that profile before changing any limit.
+
+However, `nginx invoked oom-killer` names the allocating task that entered the
+kernel OOM path, not necessarily the victim. Proof requires the continuation:
+
+```text
+oom_memcg=...
+Memory cgroup out of memory ...
+Killed process <pid> (<name>) ...
+```
+
+The cgroup/container path and `memory.events` counters should agree. The VM's
+64 GiB total memory is not the relevant limit for this event.
+
+## The reported kernel panic is a separate branch until proven otherwise
+
+An OOM-killer event is **not** a kernel panic. A real panic normally stops or
+reboots the entire guest, which should interrupt Admin, RADIUS, and TACACS and
+produce an uptime discontinuity. That is incompatible with a long GUI-only
+degradation while authentication continues, unless the panic was a later or
+separate event.
+
+Record the kernel issue as reported but unclassified until the following are
+available:
+
+- the exact `Kernel panic - not syncing: ...` signature and timestamp;
+- guest reboot and uptime evidence;
+- Hyper-V VM/host event timestamps;
+- kdump/vmcore presence or console capture;
+- RADIUS/TACACS continuity across the alleged panic time.
+
+If there is no reboot/uptime discontinuity and authentication continued, do
+not use “kernel panic” as the explanation for the Admin incident.
+
+## Ranked hypotheses and discriminators
+
+| Rank | Hypothesis | Present assessment | Decisive discriminator |
+|---:|---|---|---|
+| 1 | Local Ignite thin-client service becomes unavailable; synchronized retries amplify it into Admin saturation. | Best match for the exact repeated stack, restart recovery, and possible Data Grid-reset benefit. The initiator is still unknown. | At first onset, show whether `localhost:10800` loses its listener or the Data Grid container restarts/inactivates **before** Admin busy threads rise. |
+| 2 | 09:00 GUI/API demand triggers or magnifies a latent Admin/Data Grid failure. | Strong temporal fit; no request-source inventory yet. | Correlate first minute with Kong access logs, Admin sessions, API clients, scheduled reports, and page/URI latency. Temporarily remove one identified poller in a controlled window. |
+| 3 | Kong memory/worker pressure is an initiating or feedback-loop fault. | A 1.5-GiB cgroup OOM and worker errors are material, but the victim, cgroup, and ordering are missing. | Full OOM record, Kong cgroup counters, worker/connection counts, exact error, and timestamp preceding or following Ignite/Admin onset. |
+| 4 | ISE selected an undersized or unexpected platform profile. | The reported OOM limit exactly matches a Patch 3 profile value and may be surprising for 32 vCPU. This is a diagnostic lead, not proof. | Capture active profile, active `apigateway.memory`, active Data Grid RAM, generated Admin max threads, and container inspect values on each production node. |
+| 5 | Rare Analytics-enabled 3.3 state survives restore and activates a defective 3.5 consumer or unusual migrated data path. | Plausible unique variable. Enablement uses existing tables rather than schema DDL; 3.5 has explicit Analytics migration handlers. Disabled restore control is healthy. | Restore the affected enabled backup as Run C and compare rows, handlers, Data Grid behavior, and 72-hour load with Runs A/B. Then use Cisco-supported disablement for Run D. |
+| 6 | A general 3.3-to-3.5 schema migration defect causes the incident. | Weakened by the successful Analytics-disabled 3.3→3.5 control, but data-volume/object-specific defects remain possible. | Compare affected versus control migration warnings, object counts, and state. |
+| 7 | Hyper-V storage, vNUMA, or guest-wide resource exhaustion. | Low support: latency and general metrics are normal, VM fits vNUMA limits, and authentications remain healthy. | A time-aligned host/guest anomaly beginning before the Admin event. |
+| 8 | Kernel panic causes the recurring GUI-only slowdown. | Currently inconsistent with continued authentication and persistent GUI-only degradation. | Exact panic signature plus reboot/uptime break at the same onset. |
+
+## Minimum decisive production capture
+
+Capture the first healthy-to-degraded transition, not only the saturated tail.
+Use supported ISE collection where possible and have Cisco TAC obtain root-only
+container/cgroup details.
+
+1. Preserve the first `IgniteClientPool` exception and confirm its source
+   thread and `localhost:10800` destination.
+2. At the same second, record Data Grid process/container state, restart count,
+   cluster active state, listener state on 10800, and relevant 47100/47500
+   errors.
+3. Record Admin connector active/busy/max threads and queue depth. Capture a
+   working JVM thread dump before total saturation; group stacks by wait/lock
+   target rather than by the outer servlet filter.
+4. Preserve exact Kong worker errors and access-log request rate/URI/source.
+   Obtain Kong container `memory.current`, `memory.max`, `memory.events`, OOM
+   counters, worker count, connections, and restart count.
+5. Preserve the complete kernel OOM record, including cgroup path and killed
+   process.
+6. Capture active platform profile and generated values for Kong memory, Data
+   Grid RAM, and Admin max threads on PPAN and SPAN.
+7. Probe the PPAN and SPAN directly during the same minute. Record whether only
+   the PPAN, both PANs, or the shared VIP is slow.
+8. Record active Admin sessions, external API clients, scheduled jobs/reports,
+   and authentication rate around 08:45–09:15.
+
+The alert recurring every 15 minutes should initially be treated as alarm
+evaluation/reporting cadence. Do not infer a 15-minute initiating job without
+a distinct first-error sequence at that cadence.
+
+## Safe remediation logic
+
+- An ISE application restart is a demonstrated containment measure, not a root
+  fix. Preserve the onset evidence before restarting when operationally safe.
+- Do not simply raise the Admin thread count. It can admit more blocked work,
+  increase heap/allocation pressure, and move the failure into Kong or the JVM.
+- Do not manually override container memory or edit generated platform files;
+  first prove the selected profile and ask Cisco to correct an erroneous
+  profile/limit through a supported path.
+- Treat Data Grid reset as a destructive rebuild of persistent Data Grid state,
+  not a harmless cache flush. Use it with Cisco guidance and collect the old
+  Data Grid diagnostics first.
+- Do not bypass the Analytics JWT check or write licensing rows directly. It
+  would create an unsupported state and invalidate the experiment. Use the
+  affected configuration backup or a Cisco-issued token.
+- If Run C uniquely reproduces the problem and Cisco-supported disablement in
+  Run D clears it, the durable fix belongs with Cisco: supported entitlement
+  disable/cleanup, a migration hotfix, or a corrected release. Retain before
+  and after row metadata and logs for TAC without exposing JWT/claim material.
+
+## Local control status
+
+The disposable target `laba-ise-035` is currently running ISE 3.5.0.527 Patch
+3 with the Analytics-disabled 3.3 configuration restored. Data Grid,
+Application Server, API Gateway database/service, M&T, and Protocols Engine are
+running. On 2026-08-30 at the check recorded for this document, the GUI returned
+HTTP 302 in approximately 114 ms. Snapshot
+`control-disabled-restored-p3` preserves this state; snapshot
+`clean-p3-pre-restore` preserves the clean Patch 3 baseline.
+
+The planned offline shutdown used to create the control snapshot supplies a
+useful bounded comparison. The state monitor saw its last `ACTIVE` result at
+14:18:25 UTC, then logged nine connection-refused attempts at 3-second spacing
+from 14:18:55 through 14:19:19 as services stopped. The client pool began
+closing at 14:19:01. After the VM restarted, the monitor reported cluster
+`ACTIVE` and node `RUNNING` every 30 seconds through 14:40:40 with no further
+refusal. This is a lifecycle race, not the production signature of repeating
+cycles throughout a slow-GUI interval.
+
+Run C remains blocked on the affected Analytics-enabled 3.3 configuration-only
+backup and its encryption key. No local backup or JWT was found, and no
+unsupported Analytics state was fabricated.

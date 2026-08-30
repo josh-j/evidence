@@ -91,6 +91,9 @@ At baseline and at short intervals around onset, capture:
 - Exact first Ignite exception including destination IP, port, thread, and retry interval.
 - `datagrid.log`, `ise-ignite.log`, and the matching `console.log` window.
 - Full OOM event from invocation through `Killed process`, `oom_memcg`, and cgroup path.
+- Active platform profile and generated `apigateway.memory`, Data Grid RAM, and Admin max-thread values.
+- Data Grid container state/restart count and local TCP 10800 listener state.
+- Kong container `memory.current`, `memory.max`, `memory.events`, OOM counters, and restart count (Cisco TAC/root collection).
 - Active GUI sessions, source addresses, API clients, reports, and scheduled jobs.
 - Authentication latency and success rate.
 
@@ -117,6 +120,18 @@ For representative first and repeated Ignite failures, preserve:
 
 This distinguishes missing listener/configuration from a retry storm caused by an already-saturated service.
 
+For the reported `IgniteStateMonitorThread-0` / `IgniteClientPool` Patch 3
+stack specifically, exact bytecode fixes the client destination at TLS
+`localhost:10800`. Preserve the production stack to confirm it is this class,
+then determine why the local thin-client listener is absent. Server discovery
+and communication on 47500/47100 remain possible upstream reasons for the
+local 10800 service not being usable.
+
+The state monitor runs every 30 seconds on a primary/standalone node and the
+PAP event listener also runs every 30 seconds. Each may perform 10 serialized
+client-creation attempts with 3-second pauses. Count retry *cycles* and unique
+outages separately from raw exception lines.
+
 ### Correlate 09:00 with demand
 
 Compare the onset against:
@@ -126,6 +141,19 @@ Compare the onset against:
 - External monitoring or inventory pollers.
 - Scheduled reports, feeds, backups, purges, and synchronization jobs.
 - Authentication volume.
+
+### Classify Kong OOM and the reported kernel panic separately
+
+- Confirm whether the 1,536-MiB cgroup is the Kong container and whether nginx
+  is the killed process or only the allocating process that invoked OOM.
+- Compare the active Kong limit with the selected ISE platform profile; do not
+  infer the profile solely from assigned vCPU/RAM.
+- Preserve exact Kong worker-pool errors and determine whether they begin before
+  or after local Ignite refusals and Admin busy-thread growth.
+- Require exact `Kernel panic - not syncing` text, reboot/uptime discontinuity,
+  and Hyper-V event correlation before classifying any event as a true panic.
+- Treat an OOM-killer event and a kernel panic as distinct unless evidence
+  explicitly joins them.
 
 ## Decision criteria
 
