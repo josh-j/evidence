@@ -699,6 +699,32 @@ testing can determine causality. The invalid scanner credential should be
 fixed even if unrelated, because it risks CLI lockout and obscures genuine
 attack evidence.
 
+## 2026-08-30 — ISE safe-mode impact scoped
+
+**Source:** Cisco ISE 3.5 CLI Reference Guide and exact Patch 3 `cpmcontrol.sh`
+
+`application start ise safe` is an Admin lockout-recovery mode, not a minimal
+or performance-safe service mode. It sets `ise.startup.safe=true`, relaxes
+Admin IP restrictions, bypasses certificate-based Admin authentication in
+favor of username/password, and bypasses FIPS/RNG startup integrity checks on
+FIPS hosts. `show application status ise` emits an explicit warning while the
+mode is active. The changes disappear on the next ordinary application start.
+
+The required prior stop and subsequent safe start restart the application
+service stack and clear runtime threads, queues, pools, and retries. They do
+not perform Option 45 or erase Ignite persistence. A fast GUI afterward is
+therefore restart evidence unless an ordinary-versus-safe controlled comparison
+shows different behavior.
+
+Safe mode can expose `/admin` to an ACAS/DNA address that the normal ISE Admin
+IP allowlist would reject; external firewalls remain effective and SSH is
+unaffected. Confirm safe-mode status, the normal allowlist, and Kong requests
+from the scanner. If both start modes recover identically, safe is irrelevant.
+If only safe recovers, prioritize IP filtering and certificate-authentication
+dependencies, while treating the independent 10800 refusals as still requiring
+their own explanation. Do not leave production in safe mode after correcting
+the access problem.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

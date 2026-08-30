@@ -382,6 +382,52 @@ web/API pressure. Fix the invalid credential regardless, because it can lock
 the CLI account or conceal real authentication attacks even if it is unrelated
 to GUI performance.
 
+### Effect of `application start ise safe`
+
+ISE safe mode is an Admin-access recovery mode, not a reduced-service,
+performance, or request-rate-protection mode. Cisco's ISE 3.5 CLI guide and the
+exact Patch 3 control script agree that it starts the ISE services while the
+Application Server receives `ise.startup.safe=true`. It temporarily:
+
+- relaxes ISE Admin IP access restrictions;
+- bypasses certificate-based Admin authentication and permits username/password
+  authentication;
+- on FIPS hosts, bypasses the startup FIPS integrity and hardware-RNG checks.
+
+These changes last only for that application instance. A later ordinary stop
+and `application start ise` restores normal behavior. Patch 3's `show
+application status ise` explicitly warns when safe mode is active that IP
+access restrictions are relaxed and certificate authentication is bypassed.
+
+Safe mode requires the application not already be running, so the usual
+sequence `application stop ise` followed by `application start ise safe` is a
+full application-service stop/start. It restarts the Application Server,
+Kong/API gateway, Data Grid and related runtime services and clears in-memory
+threads, queues, connection pools, and retry state. It does **not** perform
+Option 45: it does not delete Ignite persistent data/WAL/snapshots or rebuild
+the local Data Grid configuration. Immediate GUI recovery after this sequence
+therefore has the same restart confound as an ordinary application restart;
+it does not prove that relaxed access/authentication caused the improvement.
+
+Safe mode can matter to the ACAS/DNA hypothesis. If an ISE Admin IP allowlist
+would normally exclude the scanner, safe mode can let its HTTPS traffic reach
+Kong/Tomcat `/admin` paths. Network firewalls still apply, and SSH behavior is
+unchanged. Confirm whether safe mode was active and whether the ACAS address was
+inside the normal ISE Admin allowlist, then compare Kong traffic by source.
+
+If ordinary and safe restarts both produce the same healthy interval, the
+restart is the meaningful operation. If a controlled ordinary restart remains
+slow while safe mode becomes fast, investigate Admin IP filtering and
+certificate-authentication dependencies (certificate chain, revocation/OCSP,
+external identity/AD, and authentication loops). Those access-path defects can
+explain login/access behavior but do not by themselves explain thousands of
+local Ignite 10800 refusals. FIPS safe-mode bypass mainly changes startup
+admission; it is not a likely explanation for a next-day runtime slowdown.
+
+Safe mode should not be left as the steady production state. Correct the
+access/authentication configuration and restart normally because the mode
+intentionally weakens Admin access controls.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at
