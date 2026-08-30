@@ -69,7 +69,7 @@ The 09:00 onset coincides with the start of work hours. It may represent user/se
 - Threshold alerts have been seen at roughly 15-minute intervals.
 - GUI latency has been observed near 22,000 ms and, in later reports, minutes.
 
-`CharacterEncodingFilter` is a stack location, not proof that character encoding is the root cause. The 15-minute recurrence may also be alarm evaluation cadence rather than a 15-minute initiating event.
+`CharacterEncodingFilter` is a stack location, not proof that character encoding is the root cause. Rooted decompilation resolves line 123 exactly to `FilterChain.doFilter(request, response)`, and Patch 3 maps the filter to every Admin path (`/*`). A deeper operation throws the socket-read timeout and the exception unwinds through this common frame. The waiting read holds an `admin-http-pool` thread busy; enough concurrent waits produce the threshold alert. The 15-minute recurrence may be alarm evaluation cadence rather than a 15-minute initiating event.
 
 ### Ignite / Data Grid
 

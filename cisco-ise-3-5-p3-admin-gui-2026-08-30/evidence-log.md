@@ -433,3 +433,29 @@ versus degraded rates and first-occurrence ordering. Healthy authentication is
 consistent with failure of this audit path; production must still confirm
 whether successful authentications exercised AD rather than another identity
 source.
+
+## 2026-08-30 — CharacterEncodingFilter line 123 resolved
+
+**Source:** affected-environment stack excerpt, rooted ISE Admin webapp class,
+and exact Patch 3 Admin `web.xml`
+
+**Provenance:** Verified locally for line and filter mapping; timeout destination
+not yet captured from production
+
+Decompilation maps `CharacterEncodingFilter.doFilter` source line 123 exactly
+to `FilterChain.doFilter(request, response)`. Patch 3 maps the filter to `/*`.
+The class sets request/response encoding and delegates; it performs no socket
+read at line 123. The frame appears because a deeper request handler threw
+`SocketTimeoutException` and the exception unwound through this common filter.
+
+The `admin-http-pool` thread name proves the timeout occurred while a Tomcat
+Admin executor thread owned the request. A connected socket then failed to
+return data before its read timeout. That waiting interval keeps the thread
+busy; enough concurrent waits cross the Administration thread-pool threshold.
+The most likely direction is therefore downstream read delay followed by pool
+occupancy and alerting, with Kong/request retries potentially forming a
+feedback loop. The alert itself does not create the Java timeout.
+
+The excerpt still does not name the socket. Frames above the common filter are
+required to distinguish inbound Tomcat request-body reads, outbound HTTP calls,
+Oracle JDBC, Ignite, or Cisco inter-node/local-service clients.

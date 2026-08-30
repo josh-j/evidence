@@ -73,6 +73,76 @@ CPU, memory, storage, or kernel failure during the long GUI-only interval.
 | AD Agent / PBIS runtime | Joins ISE to AD and supplies DC discovery, Kerberos/NTLM, user/group lookup, and machine-account behavior. It also attempts to emit local audit/event records. | Patch 3 contains BeyondTrust PBIS/AD Runtime 7.1.1. The exact `Failed to write records. Error code [%d]` string is in `libeventlog.so` and `libeventlog_norpc.so` beside `LwEvtWriteRecords`, `LwmEvtWriteRecords`, `localhost`, and local endpoint `/var/lib/pbis/.eventlog`. | This exact message is a failure of the PBIS Event Log client path. It is not by itself a failure to write AD objects, ISE Oracle configuration, or Ignite data. Persistent failure can still create a native retry/logging storm. |
 | Protocols Engine | Handles RADIUS/TACACS policy traffic. | It is a distinct ISE process/path from Kong and the Admin connector. | It can remain healthy through Admin-plane saturation, matching production. |
 
+## What the `console.log` timeout stack proves
+
+The reported production combination is:
+
+```text
+thread: admin-http-pool-...
+java.net.SocketTimeoutException: Read timed out
+com.cisco.cpm.admin.infra.utils.CharacterEncodingFilter.doFilter(
+    CharacterEncodingFilter.java:123
+)
+```
+
+The rooted class matching that source line resolves line 123 exactly to:
+
+```java
+chain.doFilter(request, response);
+```
+
+Patch 3 `web.xml` maps this filter to `/*`, so almost every Admin GUI request
+passes through it. The filter sets UTF-8 request/response encoding and delegates
+to the rest of the servlet chain. It performs no socket read at line 123. A
+deeper handler or filter throws the timeout, and Java unwinds the exception
+through this common frame.
+
+`admin-http-pool` identifies the Tomcat executor thread processing the inbound
+Admin request. `SocketTimeoutException: Read timed out` means a TCP connection
+was established but a read did not return data before its configured timeout.
+This differs from Ignite's `Connection refused`, which means no listener
+accepted the connection.
+
+The pool alert and timeout are therefore related as load and consequence:
+
+```text
+Admin request enters an admin-http-pool thread
+                    |
+                    v
+handler waits on a socket read
+                    |
+          the thread remains busy
+                    |
+more requests enter and wait on the same/other dependency
+                    |
+busy-thread threshold is crossed
+                    |
+ISE raises Administration thread-pool threshold alert
+                    |
+individual reads eventually time out and unwind through line 123
+```
+
+The usual direction is slow dependency/read first, occupied threads second,
+threshold alert third. Pool saturation can then create feedback: requests queue,
+Kong retains upstream connections or retries, and new arrivals consume newly
+freed threads. The roughly 15-minute alert interval can be the monitoring alarm
+evaluation cadence rather than a new failure every 15 minutes.
+
+The excerpt does **not** identify which socket was read. Preserve the frames
+between the top-level `SocketTimeoutException` and `CharacterEncodingFilter`:
+
+| Adjacent stack family | Likely read direction |
+|---|---|
+| Tomcat `Http11InputBuffer`, `InputBuffer`, request parameter/body parsing | Reading the inbound request from Kong/client. |
+| Apache HTTP client, `HttpURLConnection`, OkHttp, REST client | Application Server making an outbound HTTP(S) call. |
+| `oracle.jdbc` | Oracle query/result/socket read. |
+| Ignite thin-client classes | Data Grid read, possibly wrapped from Ignite's client exception path. |
+| Cisco inter-node/PSC/deployment client classes | Call to another ISE node or local ISE service. |
+
+The full stack, request URI, start/end timestamp, and connected remote endpoint
+are needed to name the dependency. Repeated copies of the same full stack are
+more useful than the common outer filter frame.
+
 ## What `ad_agent: failed to write records error code [1]` is writing
 
 Production reportedly has thousands of these messages. Exact Patch 3 binaries
@@ -285,6 +355,8 @@ container/cgroup details.
 3. Record Admin connector active/busy/max threads and queue depth. Capture a
    working JVM thread dump before total saturation; group stacks by wait/lock
    target rather than by the outer servlet filter.
+   For every `SocketTimeoutException`, retain the complete frames above
+   `CharacterEncodingFilter.java:123`, request URI, and socket destination.
 4. Preserve exact Kong worker errors and access-log request rate/URI/source.
    Obtain Kong container `memory.current`, `memory.max`, `memory.events`, OOM
    counters, worker count, connections, and restart count.

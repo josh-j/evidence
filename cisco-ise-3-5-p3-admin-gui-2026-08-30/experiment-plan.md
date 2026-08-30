@@ -90,6 +90,9 @@ At baseline and at short intervals around onset, capture:
 - Prometheus user/system CPU separately.
 - Exact first Ignite exception including destination IP, port, thread, and retry interval.
 - `datagrid.log`, `ise-ignite.log`, and the matching `console.log` window.
+- Complete `SocketTimeoutException` stacks rather than the common
+  `CharacterEncodingFilter.java:123` frame alone. Record request URI, start/end
+  time, socket destination, and the closest application/client frames.
 - Full OOM event from invocation through `Killed process`, `oom_memcg`, and cgroup path.
 - Active platform profile and generated `apigateway.memory`, Data Grid RAM, and Admin max-thread values.
 - Data Grid container state/restart count and local TCP 10800 listener state.
