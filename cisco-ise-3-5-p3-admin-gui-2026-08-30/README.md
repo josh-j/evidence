@@ -175,6 +175,9 @@ The documented error ordering is a **reported correlation**, not a proven causal
 ### Other observations
 
 - `ad_agent.log`: thousands of `failed to write records error code [1]` messages. Exact Patch 3 binaries identify this as PBIS Event Log API failure toward the local eventlog service/database, not a direct Oracle, Ignite, or AD-object write. The lower-level meaning of numeric code `1` remains unresolved.
+- A healthy rooted control also emits `su: (to oracle) root on none`, normally about 6–9 times/minute with sampled peaks of 12–20. Audit evidence maps these invocations to the M&T Log Processor loading small `ad_operations` buffers through Oracle SQL*Loader. A much higher production rate is therefore an M&T AD-operation volume/backlog/retry discriminator, not direct evidence of Admin-thread creation.
+- The healthy control emits frequent `Setroubleshootd ... Failed to setup environment correctly` messages after permissive SELinux container AVCs. The helper failure is noise; the associated audit record's process/path/context identifies the real source. A production rate increase should be broken down by `comm`—especially nginx/Kong versus PostgreSQL, Java/Ignite, or monitoring collectors.
+- Daily midnight `ise-kong/error.log` truncation notices are routine log rotation. The rooted control had no OOM/panic signature in 15 days of rotated `messages`; production's `nginx invoked oom-killer` remains a real event pending the victim and cgroup lines.
 - `dblock.log`: no persistent database-lock failure; queue locks around eight seconds observed.
 - `ise-psc.log`: no obvious slow replication, queue-link, major timeout, or resource failure.
 - ISE-generated thread dump was blank or whitespace-only.

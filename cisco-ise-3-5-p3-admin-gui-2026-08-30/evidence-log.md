@@ -844,3 +844,59 @@ feedback loop. The alert itself does not create the Java timeout.
 The excerpt still does not name the socket. Frames above the common filter are
 required to distinguish inbound Tomcat request-body reads, outbound HTTP calls,
 Oracle JDBC, Ignite, or Cisco inter-node/local-service clients.
+
+## 2026-08-30 — `messages` noise and root-to-Oracle rate resolved
+
+**Source:** live rooted ISE 3.3 Patch 11 control, its current and 15 rotated
+`messages` logs, audit records, M&T loader scripts, and current process status
+
+**Provenance:** Verified locally on the healthy control; production rate is
+operator-reported
+
+The healthy rooted control contains two conspicuous but normally non-fatal
+signatures also seen in production:
+
+- `su: (to oracle) root on none`
+- `Activated service 'org.fedoraproject.Setroubleshootd' failed: Failed to
+  setup environment correctly`
+
+The first line is not merely a generic Oracle health check. A matching audit
+record resolves the active command to `sqlldr /@mnt10` with
+`ad_operations.ctl`. The persistent parent is the M&T Log Processor's
+`ad_operations_sqlldr_driver.sh`. It scans the AD-operation CSV directory once
+per second and invokes `ad_operations_sqlldr.sh` whenever a completed buffer is
+available. That script changes to the `oracle` account and loads the buffer
+into the M&T database. On the control, recent loads report one to three rows
+successfully loaded and the queue normally contains only the current buffer.
+
+The healthy-control baseline during the sampled 17:02–17:41 UTC interval was
+usually 6–9 root-to-Oracle lines per minute, with periodic peaks of 12–20. A
+materially faster production rate therefore means more completed M&T buffers or
+loader churn. It can reflect increased AD-operation/event volume, a backlog, or
+repeated attempts; `messages` alone cannot distinguish these. Production should
+compare the same minute buckets with M&T `collector.log`, the
+`ad_operations` SQL*Loader outcome, queue depth/oldest file, and GUI incident
+onset. This loader does not execute in `jsvc` or consume `admin-http-pool`
+threads directly, so it is a possible shared-load/amplification clue rather
+than a complete GUI root cause.
+
+The Setroubleshootd line is an unsuccessful attempt to launch the SELinux
+troubleshooting helper after audit events; it is not itself the underlying
+denial. On the control, recent AVCs are predominantly permissive container
+domain events from PostgreSQL, Elasticsearch, RabbitMQ/Erlang, Grafana,
+Prometheus, and ISE status/counter collectors. The records say `permissive=1`,
+so the inspected operations were logged but allowed. A faster production rate
+means more underlying AVC-producing operations. The decisive evidence is the
+associated audit record's `comm`, path, source/target context, operation, and
+`permissive` value. If `nginx`/Kong dominates only during degradation, that
+supports gateway pressure; PostgreSQL, Ignite/Java, or metric collectors point
+elsewhere.
+
+Other routine signatures found on the control include transient rsyslog
+refusals to `127.0.0.1:5514` during service startup, DNF make-cache warnings,
+container `mqueue` SELinux mount warnings, and the daily midnight rsyslog
+`ise-kong/error.log` truncation notice caused by log rotation. Across the 15-day
+window there was no `invoked oom-killer`, `Memory cgroup out of memory`,
+`Killed process`, kernel-panic, lockup, or hung-task signature. The production
+`nginx invoked oom-killer` fragment must therefore remain classified as a real
+OOM event pending its victim/cgroup lines, not as this routine appliance noise.
