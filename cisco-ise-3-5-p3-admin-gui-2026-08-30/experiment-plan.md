@@ -1,5 +1,10 @@
 # Controlled experiment and capture plan
 
+For an active production recurrence, use the supported non-root commands and
+timestamped decision checklist in
+[`production-cli-capture-runbook.md`](production-cli-capture-runbook.md) before
+restarting the application or resetting Data Grid.
+
 ## Questions to answer
 
 1. Which Analytics rows and claim fields exist in the affected 3.3 backup?

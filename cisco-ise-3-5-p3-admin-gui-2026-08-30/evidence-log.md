@@ -1122,3 +1122,32 @@ current Hyper-V owner. Group exact leaf paths and require uniqueness. A shared
 parent with unique leaves is not the same result. If any leaf path is duplicated,
 preserve configuration and escalate before any detach, merge, copy, restart, or
 other attempted repair.
+
+## 2026-08-30 — Supported production CLI capture defined
+
+**Source:** Cisco ISE 3.5 CLI Reference Guide, Cisco ISE 3.5 Administration
+Guide, and Cisco support-bundle/debugging guidance
+
+**Provenance:** Cisco-supported collection interfaces; candidate application
+log filenames still require discovery on each installed node
+
+A non-root, three-node capture sequence is now documented in
+[`production-cli-capture-runbook.md`](production-cli-capture-runbook.md). The
+minimum pre-restart snapshot records clock synchronization, ISE service status,
+Data Grid listeners and sockets on 10800/47100/47500, and short CPU/I/O/VM
+samples. `show logging application` and `show logging system` first inventory
+the available files; `| last 80` then provides supported rapid triage, while
+`backup-logs` preserves complete and rotated evidence for TAC.
+
+The runbook intentionally does not enable broad DEBUG logging or default to a
+packet capture during the failure. Both can change system load, and packet data
+can contain sensitive material. Support bundles are collected privately from
+all nodes for the same date range; raw bundles, JWTs, configuration backups,
+and unredacted CLI output remain outside this public repository.
+
+The required outcome is an ordered timeline, not a count of the loudest error.
+The first CPU step, Ignite refusal, listener loss, topology event, Admin-pool
+threshold, Kong failure, and cgroup OOM must be compared across all nodes. The
+same capture also records request source/URI/rate and the active Admin/Kong/Data
+Grid limits so TAC can distinguish trigger, retry amplifier, and sustained
+latched state.
