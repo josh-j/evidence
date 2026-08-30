@@ -205,6 +205,51 @@ records by the known PAN/SPAN/PSN addresses to prove this rather than treating
 all inter-node traffic as Admin traffic. Disabling ERS/OpenAPI lowers their
 priority but leaves the GUI catch-all and `/admin` scanner/legacy paths active.
 
+### Supported mitigation knobs and non-knobs
+
+The strongest ISE-side containment control is **Administration > System >
+Admin Access > Settings > Access**. Release 3.5 provides separate access
+restriction tabs for Admin GUI/CLI, Admin Services (ERS, OpenAPI, pxGrid, and
+Data Connect), and user services. Allowlisting only administrator subnets for
+the GUI can prevent ACAS and unintended automation from entering `/admin`
+without relying on session counts. Required integrations should be allowlisted
+only for the service they actually use and moved away from legacy
+`/admin/API/...` calls when supported.
+
+The Admin GUI concurrent-session limit (supported range 1–20) and idle timeout
+(6–100 minutes) limit authenticated sessions, not in-flight requests per
+session. They cannot stop a scanner before login or a retrying authenticated
+client, and an idle session consumes no Admin worker. The separate **Maximum
+Sessions per User/Group** and **Counter Time Limit** settings govern RADIUS
+network-access session counters on PSNs; changing them is unrelated to the
+Tomcat Admin executor.
+
+Ensure diagnostic components have reverted to their default logging levels.
+Excessive debug logging can amplify exception formatting, `char[]` allocation,
+GC, and disk activity, but suppressing an ERROR storm does not repair its
+dependency. Disabling unused ERS/OpenAPI services and restricting their source
+addresses reduces API demand, but does not stop Kong, the GUI catch-all, or
+legacy `/admin` paths.
+
+The 32-vCPU/64-GiB VM is a supported SNS 3815-equivalent small profile, not an
+invalid shape. It nevertheless generates the locally verified small-profile
+limits: 200 Admin workers, 1,536 MiB for Kong, 2 GiB for Data Grid, and a
+12-GiB Application Server heap. Cisco recommends the SNS 3895 class for PAN and
+MnT personas. If production load exceeds the small profile, the supported
+capacity lever is an exact larger Cisco profile and/or dedicated PAN, MnT, and
+PSN persona placement—not hand-editing individual limits. CPU and memory must
+be fully reserved with no hypervisor limit or oversubscription. A move should
+be validated with TAC and use a supported CPU/RAM pair.
+
+No supported GUI/CLI knob was identified for `AdminExecutorPool.maxThreads`,
+Kong worker count/cgroup memory, Ignite heap, `IgniteClientPool` retries, or the
+local 10800 listener. These are generated internal profile/service settings;
+changing files or cgroups manually would create unsupported, restart-fragile
+state. Ensure Data Grid ports 47500, 47100, and 10800 meet Cisco's network
+requirements. If local 10800 disappears, an application restart or Data Grid
+reset is recovery, not a durable tuning fix; persistent recurrence requires a
+TAC defect investigation/hotfix using the first-failure logs and active profile.
+
 ### Ignite / Data Grid
 
 - `ise-ignite.log` contains thousands of:
