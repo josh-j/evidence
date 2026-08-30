@@ -280,10 +280,72 @@ supposedly running?** The focused branches are:
    intermittently unreachable;
 4. work-hour activity or migrated data drives one of the preceding conditions.
 
-The platform profile primarily reduces Kong/JVM/Admin headroom; its `sns3815`
-Data Grid allocation is 2 GiB, so it does not by itself explain why 10800 is
-absent. The rare Analytics state is likewise a candidate workload/data trigger,
-not yet evidence of the failing subsystem.
+The platform profile reduces Kong/JVM/Admin headroom and gives Data Grid a
+bounded 2-GiB envelope; the exact Data Grid memory arithmetic below makes that
+a plausible local failure contributor, although the profile alone is not proof
+that the process exited. The rare Analytics state is likewise a candidate
+workload/data trigger, not yet evidence of the failing subsystem.
+
+### How the PAN alone can lose 10800
+
+The local listener exists only while that node's Ignite JVM successfully
+starts and remains alive. Patch 3 provides several concrete PAN-local failure
+paths:
+
+1. **Container/JVM memory exit.** Under predicted profile `sns3815`, Docker
+   caps Ignite at 2 GiB. The launcher sets Java heap initial/max to 50% (1,024
+   MiB) and the persistent data region initial/max to 40% (about 819 MiB),
+   leaving only about 205 MiB of nominal cgroup headroom for metaspace, code
+   cache, thread stacks, direct buffers, networking, GC/native structures, and
+   other container memory. `AlwaysPreTouch` is enabled for the heap and Ignite
+   is launched with `ExitOnOutOfMemoryError`. PAN-local Admin/cache activity can
+   therefore terminate its JVM without requiring the SPAN/PSN to fail. This is
+   a concrete risk, not proof of the production exit.
+2. **Stale initialization lock.** The launcher uses
+   `/tmp/ise-ignite-service.lock`. If it exists while the container is not
+   running, `start_ignite()` reports “initializing” and returns without
+   creating/starting the container. Normal shell exit removes the lock, but an
+   abnormal setup interruption can strand it. Option 45 explicitly removes the
+   lock, making this a good fit for “reset repairs one node.”
+3. **Local persistence/WAL/checkpoint failure.** The node keeps persistent
+   pages and WAL under `/opt/ignite/data`. Corrupt pages, incomplete recovery,
+   filesystem/permission errors, or a fatal Ignite failure handler can stop
+   startup before the `0.0.0.0:10800` connector binds. Option 45 deletes that
+   local state, while the surviving replicated members can repopulate the PAN.
+4. **Discovery/activation failure local to the PAN.** Ignite uses Oracle-backed
+   `TcpDiscoveryJdbcIpFinder`, inter-node discovery/communication, TLS material,
+   and baseline topology. A bad local database connection, hostname/IP,
+   certificate/keystore, discovery response, or baseline recovery can prevent
+   that JVM from completing startup even though the other members remain
+   active.
+5. **Local connector bind/network state.** Port 10800 is configured at
+   `0.0.0.0`, TLS-enabled, with no fallback port range. A bind conflict or local
+   firewall/container host-network publication failure leaves no usable 10800.
+   This is less likely than a stopped JVM when the error is a loopback refusal,
+   but it is distinguishable in the logs.
+
+Why the PAN can be first even with identical VMs: it handles PPAN Admin/UI and
+configuration activity, primary event listeners, and cluster activation work.
+At 09:00 it can experience local cache reads/writes, serialization, scheduled
+work, and connection activity not mirrored by the other nodes. Replicated cache
+contents do not imply identical transient/native memory or thread load.
+
+The status at first onset selects the branch:
+
+| Supported observation | Most likely branch |
+|---|---|
+| Data Grid `not running`; 10800 absent | JVM/container exit; inspect OOM and exit/restart evidence. |
+| Data Grid remains `initializing`; 10800 absent | Stale lock or persistence/discovery startup loop. |
+| Data Grid `running`; 10800 intermittently absent | JVM/container restart loop or connector bind failure. |
+| 10800 present but cluster inactive/unhealthy | Discovery, activation, baseline, or persistent-state problem. |
+| PAN alone affected | Local memory/persistence/lock/bind state. |
+| All members affected together | Shared discovery, cluster state, or common workload/configuration. |
+
+Preserve `datagrid.log`, `ise-ignite.log`, `ADE.log`, container logs, GC logs,
+the complete kernel OOM window, and the first state transition. High-value
+signatures include `OutOfMemoryError`, exit code 137, `Killed process`, heap
+dump/error-file creation, repeated “initializing,” WAL/checkpoint/page errors,
+Oracle JDBC discovery errors, TLS/keystore errors, and `Address already in use`.
 
 ## What a one-node Option 45 reset means
 

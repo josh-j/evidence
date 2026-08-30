@@ -431,6 +431,29 @@ triggering workload/state to reaccumulate. Simultaneous user-session and
 timeout changes prevent assigning the longer healthy interval solely to the
 reset.
 
+## 2026-08-30 — Concrete PAN-local 10800 loss mechanisms identified
+
+**Source:** exact Patch 3 `ignite-control.sh`, `ignite-config.xml`, and platform
+properties
+**Provenance:** Verified locally; production branch not yet selected
+
+For predicted profile `sns3815`, the Ignite container is hard-limited to 2 GiB.
+The launcher configures 1,024 MiB initial/max Java heap and about 819 MiB
+initial/max persistent data region, leaving about 205 MiB nominal headroom for
+all other native/JVM/container memory. It enables `AlwaysPreTouch` and
+`ExitOnOutOfMemoryError`. PAN-specific Admin/cache activity can therefore kill
+that JVM and remove the local 10800 listener while other nodes remain alive.
+Production needs Ignite/container-specific OOM or exit evidence; the reported
+1,536-MiB nginx OOM fragment likely describes the separate Kong limit.
+
+The start path also gates on `/tmp/ise-ignite-service.lock`: if the lock exists
+while the container is absent, it returns “initializing” without starting the
+service. Option 45 removes this lock as well as local persistent/WAL/work state.
+This creates two particularly testable explanations for a one-node reset
+repair: memory-driven container exit/restart or a stranded initialization/
+recovery state. Other focused branches are local WAL/page/checkpoint failure,
+Oracle JDBC discovery/baseline/TLS failure, and 10800 bind/firewall state.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

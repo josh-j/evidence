@@ -36,6 +36,15 @@ The 32-vCPU/64-GiB platform profile and 09:00 request load are credible
 capacity amplifiers. Analytics-enabled migrated state remains a possible input
 to the failing path, not the presently demonstrated failing component.
 
+Patch 3 supplies two concrete ways this can remain PAN-local. With predicted
+profile `sns3815`, its 2-GiB Ignite container is configured with a 1-GiB Java
+heap and an approximately 819-MiB initial/max persistent data region, leaving
+about 205 MiB for all remaining JVM native and container memory; the JVM exits
+on OOM. Separately, a stranded `/tmp/ise-ignite-service.lock` makes the start
+path report “initializing” without starting a missing container, and Option 45
+explicitly removes that lock. Local WAL/persistence recovery or discovery/TLS
+startup failures are the next focused branches.
+
 This working statement is falsifiable without production root access. During
 the next onset, supported `show application status ise` and `show ports |
 include 10800` should establish whether Data Grid is stopped/restarting or its
