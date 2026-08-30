@@ -585,6 +585,32 @@ pool can nevertheless delay Admin requests. The approximately 15-minute alert
 recurrence can therefore be health monitoring repeatedly observing sustained
 occupancy, not a new thread-creation event every 15 minutes.
 
+## 2026-08-30 — Admin request timeout layers separated
+
+**Source:** active rooted 3.3 Kong service records and Tomcat connector; exact
+Patch 3 Ignite bytecode/configuration
+
+**Provenance:** Control and Patch 3 mechanisms verified; affected-production
+Kong service values and timeout stack not yet supplied
+
+No universal Tomcat request-execution deadline was identified. An Admin worker
+remains occupied until its application action returns or a dependency-specific
+timeout/error unwinds it. The rooted control's GUI service allows 60 seconds to
+connect from Kong to Tomcat and one hour (`3,600,000 ms`) for upstream read and
+write inactivity, with five eligible retries. Tomcat's five-minute keepalive
+controls idle persistent connections, not active request execution.
+
+Exact Patch 3 Ignite configuration uses a five-minute client timeout, while a
+missing local listener produces the approximately 27-second Cisco wrapper
+retry cycle because the connection refusals are immediate. Neither value can
+be assigned to the reported Java read timeout without its complete stack.
+
+The Admin GUI session idle limit is also unrelated: it expires authentication
+state and does not release a worker currently blocked inside a request. Thus
+many Admin tasks may stay occupied for tens of seconds or minutes, and some
+gateway-visible requests can wait much longer, without a single thread-pool
+watchdog terminating them.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

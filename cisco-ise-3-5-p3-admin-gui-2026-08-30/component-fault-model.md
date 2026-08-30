@@ -182,6 +182,46 @@ the pool occupied. A recurring threshold alarm is a periodic observation that
 occupancy remains high, not evidence that a new set of threads is created each
 time the alarm fires.
 
+## How long an Admin worker can remain occupied
+
+There is no verified single Tomcat "complete every Admin action within N
+seconds" deadline. An `admin-http-pool` thread is reusable and can live for the
+Application Server lifetime; the relevant duration is how long its current
+request task remains inside application code. It returns to the pool only when
+the request completes, throws, is cancelled/interrupted, or a dependency's
+specific timeout unwinds the call.
+
+Verified rooted 3.3 gateway and connector values illustrate the different
+timers:
+
+| Timer | Verified value | What it controls |
+|---|---:|---|
+| Kong GUI upstream connect timeout | 60,000 ms | Time to establish the Kong-to-Tomcat connection; not request execution time. |
+| Kong GUI upstream read timeout | 3,600,000 ms (1 hour) | Maximum idle interval waiting for upstream response data. |
+| Kong GUI upstream write timeout | 3,600,000 ms (1 hour) | Maximum idle interval while sending the request upstream. |
+| Kong service retries | 5 | Eligible upstream-failure retries; not an unconditional fivefold request duration. |
+| Tomcat connector keepalive timeout | 300,000 ms (5 minutes) | Idle time between HTTP requests on a persistent connection; not the execution limit for an active request. |
+| Patch 3 Ignite client timeout | 300,000 ms (5 minutes) | Ignite client/network-operation envelope; an immediate refusal instead follows Cisco's wrapper retry path. |
+| Missing-listener wrapper retry cycle | about 27 seconds | Ten rapid-refusal attempts separated by nine three-second sleeps. |
+
+The gateway numbers were read from the active rooted 3.3 control's Kong Admin
+API; the Patch 3 gateway service record in affected production has not been
+read directly. Patch 3's Ignite values come from exact bytecode/configuration.
+
+The reported `java.net.SocketTimeoutException: Read timed out` is the timer of
+the particular socket read occurring deeper in that request. It is not
+automatically Kong's one-hour read timeout, the five-minute HTTP keepalive, the
+Admin login idle timeout, or a thread-pool timeout. The complete intervening
+stack frames are required to identify whether the read belongs to Oracle,
+Ignite, outbound HTTP, an inbound request body, or another ISE node and thus to
+identify its configured deadline.
+
+Consequently, an Admin pool can remain saturated for minutes even without high
+CPU: many workers can each wait on a different or serialized operation whose
+timeout is tens of seconds, five minutes, or potentially longer. Admin-session
+idle timeout controls how long an authenticated session remains valid and does
+not bound how long a current request may occupy a worker.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at
