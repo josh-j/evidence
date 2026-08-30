@@ -517,6 +517,45 @@ first refused 10800 connection, and the first Admin thread-pool alert. A first
 refusal during 00:00-02:00 makes overnight work a strong trigger lead; a proven
 healthy listener until 09:00 points back to work-hour demand.
 
+## 2026-08-30 — jsvc CPU parallelism interpreted
+
+**Source:** production `tech top` and Prometheus observations, exact Patch 3
+thread-pool/client-pool configuration, and read-only rooted 3.3 control
+
+**Provenance:** Production utilization reported; control affinity verified;
+production affinity/quota not yet verified
+
+`jsvc` at 200–300% represents approximately two to three CPUs in Linux
+`top`-style accounting, or 6.25–9.375% of a 32-vCPU VM. It is quantitatively
+consistent with the approximately 10% Prometheus increase after other process
+and kernel work is included.
+
+Admin pool occupancy is not CPU parallelism. Up to 200 Admin threads on the
+predicted Patch 3 `sns3815` profile can be occupied while most wait in socket
+reads, Oracle/Ignite calls, retry sleeps, monitors, or queues. The synchronized
+Patch 3 Ignite client-construction path is one verified serial point. The few
+runnable threads can spend CPU constructing/logging repeated exceptions,
+serializing GUI JSON/XML, allocating strings/character arrays, and collecting
+the resulting garbage.
+
+The reported `java char[]` profile indicates allocation/string-processing
+churn rather than an array being an executable hotspot. It is consistent with
+JSON, encoding, stack-trace, and logging work, but does not make
+`CharacterEncodingFilter` the cause.
+
+No Patch 3 three-core jsvc pin was found. On the rooted 3.3 control, the live
+Application Server child had more than 1,100 threads but was allowed on every
+one of its eight assigned vCPUs according to `taskset`. Exact production 3.5
+affinity and quota require TAC/root-level inspection. If CPU remains capped at
+exactly about 300% under unrelated parallel workloads, inspect affinity,
+cgroup CPU quota, JVM active-processor/GC flags, and Hyper-V per-vCPU state.
+Otherwise limited runnable/serial work is the expected explanation.
+
+The next useful capture is repeated per-thread CPU plus JVM thread dumps and GC
+logs during degradation. It will separate runnable logging/serialization/GC or
+query threads from the larger population of occupied but waiting Admin
+threads.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

@@ -143,6 +143,65 @@ The full stack, request URI, start/end timestamp, and connected remote endpoint
 are needed to name the dependency. Repeated copies of the same full stack are
 more useful than the common outer filter frame.
 
+## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
+
+Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at
+200–300% means that, averaged over the sampling interval, the Application
+Server consumed about two to three CPUs. On a 32-vCPU VM, 300% process CPU is
+about 9.4% of total VM capacity. That closely matches the reported roughly 10%
+rise in ISE Prometheus CPU after allowing for Kong, kernel, logging, and other
+processes.
+
+This is not evidence that the JVM has exhausted the VM's CPU capacity. A Java
+process uses another core only when it has another runnable thread doing CPU
+work. An Administration pool can contain 200 busy/occupied threads while most
+are blocked or sleeping in socket reads, Oracle calls, Ignite retry sleeps,
+locks, queues, or downstream-service waits. Such threads consume a pool slot
+and can trigger its threshold without consuming a core.
+
+The reported failure has several credible sources of two-to-three-core jsvc
+work:
+
+- repeated exception creation, stack-trace formatting, and high-volume log
+  output for Ignite and socket failures;
+- JSON/XML/string encoding and serialization for slow or repeatedly requested
+  GUI data-grid pages;
+- garbage collection caused by short-lived exception, `String`, and `char[]`
+  allocation;
+- a small number of retry/state-monitor/event-listener/request threads cycling
+  while many Admin threads wait;
+- scheduled endpoint/profile/report/Analytics work that contains serial query
+  or cache sections.
+
+The `java char[]` profiling result describes allocation/data churn, not code
+that literally executes inside an array. Java strings, JSON, encoding,
+stack-trace formatting, and log messages all create character arrays. The
+common `CharacterEncodingFilter` frame likewise establishes that the request
+was inside the servlet path; it does not prove the filter consumed the CPU.
+
+Patch 3's `IgniteClientPool` gives a concrete parallelism limiter: client
+construction for main, UI, and event-listener clients is protected by one
+class-wide monitor, and failed attempts sleep between retries. More waiting
+Admin requests therefore do not produce proportional CPU parallelism. Similar
+serialization can exist in database connections, cache operations, report
+queries, and logging appenders.
+
+No three-core jsvc pin was found in the Patch 3 configuration examined. As a
+control, the rooted 3.3 Patch 11 Application Server child had more than 1,100
+threads and `taskset` allowed all eight assigned lab vCPUs (`0-7`). Production
+3.5 affinity/quota remains unverified because it is not rooted. A hard ceiling
+near exactly 300% under different workloads would justify having TAC inspect
+`Cpus_allowed_list`, cgroup CPU quota, `taskset`, JVM
+`ActiveProcessorCount`/GC-thread flags, and Hyper-V per-vCPU scheduling. The
+current 200–300% observation alone is more naturally explained by limited
+runnable parallel work than by a three-core cap.
+
+The decisive capture is three per-thread CPU/thread dumps spaced 10–30 seconds
+apart plus the matching GC log. Repeated runnable stacks in JSON/encoding,
+logging, exception construction, GC, Ignite client setup, or a particular
+query identify the CPU work. Large populations in `WAITING`, `TIMED_WAITING`,
+or socket read identify why the thread pool is full without using more cores.
+
 ## What `ad_agent: failed to write records error code [1]` is writing
 
 Production reportedly has thousands of these messages. Exact Patch 3 binaries
