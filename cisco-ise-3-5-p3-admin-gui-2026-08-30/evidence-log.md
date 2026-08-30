@@ -611,6 +611,43 @@ many Admin tasks may stay occupied for tens of seconds or minutes, and some
 gateway-visible requests can wait much longer, without a single thread-pool
 watchdog terminating them.
 
+## 2026-08-30 — Request-source and accidental-flood evidence located
+
+**Source:** active rooted Kong/Tomcat configuration and exact Patch 3 support
+bundle collector
+
+**Provenance:** Log fields, bundle path, routes, and executors verified;
+affected DNA Center request details not yet supplied
+
+Kong's proxy access log is `/opt/kong/logs/access.log`, also reached through
+`/opt/CSCOcpm/logs/ise-kong`. Patch 3 support bundles copy these files to
+`logs/apigateway/`. Entries contain client and forwarded IPs, authenticated
+user, method/URI, status, User-Agent, upstream status, and upstream
+connect/header/response times. `api-gateway.log` records gateway control work
+and is not a substitute for the proxy access log.
+
+The active logging filter omits 2xx/3xx requests and retains error statuses.
+This should expose a failing DNA Center retry storm but can hide a successful
+high-rate poller. Upstream firewall/load-balancer/NetFlow or scoped Hyper-V
+capture can still establish source IP and rate; temporary all-status URI
+logging on ISE should be arranged through TAC.
+
+Route mapping prevents treating every DNA Center message as an Admin request:
+GUI/catch-all traffic reaches Tomcat 9443 and `admin-http-pool`; `/ers` reaches
+the ERS pool, `/api` the OpenAPI pool, pxGrid its own pool, and RADIUS/TACACS the
+Protocols Engine. The reported DNA failure needs source IP, destination port,
+URI/status, User-Agent or client certificate, and matching thread name before
+it can explain Administration pool occupancy.
+
+Accidental application-layer overload is established by ordering rather than
+volume alone. Bin source/path/status counts and upstream latency per minute and
+align them with the first Ignite refusal, Admin threshold, jsvc CPU rise, and
+GUI latency. A client rate surge first supports a poll/retry trigger; backend
+latency or 10800 loss first with client retries afterward supports server-side
+failure amplification. At 22-second service time, approximately nine requests
+per second can occupy the predicted 200-thread Admin pool despite modest
+bandwidth.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

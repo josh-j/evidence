@@ -222,6 +222,78 @@ timeout is tens of seconds, five minutes, or potentially longer. Admin-session
 idle timeout controls how long an authenticated session remains valid and does
 not bound how long a current request may occupy a worker.
 
+## Identifying who is creating Admin requests
+
+The most direct source is Kong's proxy access log. On the rooted control it is
+`/opt/kong/logs/access.log`; `/opt/CSCOcpm/logs/ise-kong` is a symlink to that
+directory. Exact Patch 3 `isesupport.sh` copies it into the support bundle under
+`logs/apigateway/`, together with `api-gateway*` logs. The custom access format
+records:
+
+- timestamp, directly observed source IP, authenticated remote user, method,
+  URI, and HTTP version;
+- response status/bytes, referrer, User-Agent, and `X-Forwarded-For`;
+- upstream status, bytes sent/received, and connect/header/response times;
+- client-certificate serial, issuer, and subject when supplied.
+
+`api-gateway.log` is principally gateway control/target activity, not the
+complete request ledger. `console.log` identifies the Java worker and backend
+stack but normally does not identify the original client as reliably as the
+gateway access entry. Correlate access, Kong error, and Java console entries by
+normalized timestamp and request URI.
+
+The active Kong configuration has an important blind spot: its `$loggable` map
+suppresses 2xx and 3xx proxy access entries and writes other statuses. A DNA
+Center retry storm producing 401, 403, 404, 429, or 5xx should therefore be
+visible with source, path, User-Agent, and timing. A flood of successful calls
+may not be present in the default access log. In that case use upstream
+firewall/load-balancer/NetFlow or a scoped Hyper-V virtual-switch capture to
+measure source IP, connection rate, bytes, and timing; TLS prevents an
+off-appliance capture from revealing the URI. TAC can arrange temporary
+complete gateway request logging if URI-level visibility is required in
+production.
+
+The path determines whether a DNA/Catalyst Center connection can consume Admin
+workers. Verified routing/executor mappings are:
+
+| Incoming function/path | Backend pool/path | Does it directly use `admin-http-pool`? |
+|---|---|---|
+| GUI and catch-all `/`, including `/admin/...` | Tomcat 9443 / `AdminExecutorPool` | Yes |
+| ERS `/ers` | ERS upstream, including connector 9060 / `ers-http-pool` | Normally no |
+| OpenAPI `/api` | OpenAPI upstream/9070 / `openapi-http-pool` | Normally no |
+| pxGrid integration | pxGrid connector/`pxgrid-http-pool` | No |
+| RADIUS/TACACS | Protocols Engine | No |
+
+Therefore “DNA Center failed to connect” is not enough. Preserve its source
+IP, destination port, URI, status, User-Agent/client certificate, and matching
+thread name. A legacy `/admin/API/...` call, GUI endpoint, or fallback path can
+use the Admin pool; an ERS, OpenAPI, or pxGrid failure implicates its own pool
+unless it triggers separate internal Admin work.
+
+To distinguish accidental application-layer flooding from a server-side stall,
+compare healthy and degraded windows in one-minute bins:
+
+1. requests and TCP connections by source IP;
+2. method plus query-stripped URI, status, and User-Agent;
+3. Kong upstream connect/header/response time;
+4. Admin busy-thread count/threshold events, jsvc CPU, and first Ignite refusal;
+5. unique authenticated users and concurrent connections.
+
+A source/URI rate surge that precedes latency and pool occupancy supports a
+client retry/polling trigger. A normal request rate followed first by upstream
+latency or loss of 10800, with retries growing afterward, supports a backend
+failure amplified by clients. This ordering matters because only about nine
+22-second requests per second can occupy the 200-thread pool: a low-bandwidth
+poller can produce application-layer overload without conspicuous network
+throughput.
+
+A controlled discriminator, with the integration owner and change approval,
+is to pause or firewall only the suspected DNA Center source before the next
+onset. If request rate, pool occupancy, jsvc CPU, and GUI latency fall without
+an ISE restart, that is strong causal evidence. If the pool remains saturated
+or 10800 remains absent, the client was noise or an amplifier rather than the
+underlying fault.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at
