@@ -23,10 +23,14 @@ the local listener becomes unavailable and whether that precedes Kong/Admin
 pressure.
 
 The reported 1,572,864-kB OOM limit exactly equals 1,536 MiB. Patch 3 applies
-`apigateway.memory` as the Kong container's hard limit, and 1,536 MiB is a real
-Patch 3 profile value. The full OOM cgroup/victim and production's active
-platform properties are required to determine whether Kong actually hit this
-limit and whether ISE selected an unexpected profile for the 32-vCPU VM.
+`apigateway.memory` as the Kong container's hard limit. More importantly,
+decompiled Patch 3 profile-selection code predicts that a generic non-cloud VM
+with the reported 32 vCPU and 64 GiB selects `sns3815`, because it misses the
+96-GiB large-profile threshold and then matches the 32-CPU/32-GiB rule.
+`sns3815` gives Kong exactly 1,536 MiB, the Admin connector 200 threads, the JVM
+12 GiB, and Data Grid 2 GiB. The full OOM cgroup/victim and production's active
+properties are still required to confirm this chain, but the numerical match
+is now specific rather than coincidental.
 
 ## Affected environment — reported
 

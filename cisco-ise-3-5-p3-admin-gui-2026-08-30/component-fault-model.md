@@ -287,13 +287,38 @@ assign more; for example:
 | `vm_standard3_flex_8` | 3,072 MiB |
 | `vm_standard3_flex_16` | 6,144 MiB |
 | `vm_standard3_flex_32` | 12,288 MiB |
+| `sns3815` | 1,536 MiB |
 | `sns3595` | 3,072 MiB |
 
-This makes a Kong/nginx container OOM technically credible and makes the
-production node's **active platform profile** a high-value check. A 32-vCPU VM
-does not prove that ISE selected `vm_standard3_flex_32`; the generated active
-properties must be read. If the OOM cgroup is Kong and its active limit is only
-1,536 MiB, determine why ISE selected that profile before changing any limit.
+Patch 3's decompiled `PlatformProfileServiceImpl.mapVmToProfile()` makes the
+reported 32-vCPU/64-GiB combination especially significant. For a generic,
+non-cloud `ISE-VM`, it tests CPU and RAM thresholds in order. The VM misses the
+96-GiB-and-larger rules and then matches `cpu >= 32 && MemTotal >= 31,200,000
+kB`, selecting `sns3815`. The generated `sns3815` properties assign:
+
+| Property | `sns3815` value | `vm_standard3_flex_8` (64-GiB shape) |
+|---|---:|---:|
+| Kong `apigateway.memory` | 1,536 MiB | 3,072 MiB |
+| Data Grid `ise-data-grid-service.ram` | 2 GiB | 1 GiB |
+| Admin `tomcat.adminThreadPool.maxThreads` | 200 | 500 |
+| Application Server `java.maxHeap` | 12,288 MiB | 16,384 MiB |
+
+This is not a restore-time database decision. The local appliance service
+computes the profile from platform identity, CPU count, and `/proc/meminfo`,
+then writes `/opt/CSCOcpm/config/platform.properties-active`. It rebuilds that
+file when absent, when the node persona configuration changes, or when RAM
+changes. The demonstrated invalidation check does not compare the saved CPU
+count, so a CPU-only resize can leave stale generated properties until another
+rebuild trigger.
+
+This makes a Kong/nginx cgroup OOM technically credible and elevates the active
+profile from a generic lead to a concrete prediction: absent cloud detection
+or other platform classification, the reported VM shape should select
+`sns3815`. Production must still confirm the generated profile and prove that
+the 1,536-MiB cgroup is Kong; `nginx invoked oom-killer` alone is insufficient.
+Do not manually edit Cisco's generated properties or container limit. Correct
+the VM to a Cisco-supported CPU/RAM shape or obtain a Cisco-supported profile
+correction from TAC.
 
 However, `nginx invoked oom-killer` names the allocating task that entered the
 kernel OOM path, not necessarily the victim. Proof requires the continuation:
@@ -334,7 +359,7 @@ not use “kernel panic” as the explanation for the Admin incident.
 | 1 | Local Ignite thin-client service becomes unavailable; synchronized retries amplify it into Admin saturation. | Best match for the exact repeated stack, restart recovery, and possible Data Grid-reset benefit. The initiator is still unknown. | At first onset, show whether `localhost:10800` loses its listener or the Data Grid container restarts/inactivates **before** Admin busy threads rise. |
 | 2 | 09:00 GUI/API demand triggers or magnifies a latent Admin/Data Grid failure. | Strong temporal fit; no request-source inventory yet. | Correlate first minute with Kong access logs, Admin sessions, API clients, scheduled reports, and page/URI latency. Temporarily remove one identified poller in a controlled window. |
 | 3 | Kong memory/worker pressure is an initiating or feedback-loop fault. | A 1.5-GiB cgroup OOM and worker errors are material, but the victim, cgroup, and ordering are missing. | Full OOM record, Kong cgroup counters, worker/connection counts, exact error, and timestamp preceding or following Ignite/Admin onset. |
-| 4 | ISE selected an undersized or unexpected platform profile. | The reported OOM limit exactly matches a Patch 3 profile value and may be surprising for 32 vCPU. This is a diagnostic lead, not proof. | Capture active profile, active `apigateway.memory`, active Data Grid RAM, generated Admin max threads, and container inspect values on each production node. |
+| 4 | The 32-vCPU/64-GiB mixed VM shape selects the undersized `sns3815` profile and makes Kong/Admin capacity a failure amplifier. | Exact Patch 3 bytecode predicts `sns3815`: 1,536-MiB Kong, 2-GiB Data Grid, 200 Admin threads, and 12-GiB JVM heap. The OOM limit exactly matches, but its cgroup/victim and the production active profile remain unproven. | Capture `platform.profile`, active limits, and container cgroup values on all nodes. If confirmed, test a Cisco-supported CPU/RAM shape with TAC guidance and compare the same work-hour load. |
 | 5 | PBIS Event Log client retries are an initiator or resource amplifier. | Thousands of errors make this material, but the write target is the local PBIS eventlog path rather than ISE/AD application data. It has no demonstrated dependency on Ignite or the Admin executor. | Compare its per-minute rate in healthy and degraded windows; capture PBIS `eventlog` service/socket state and the immediately preceding AD-agent messages. |
 | 6 | Rare Analytics-enabled 3.3 state survives restore and activates a defective 3.5 consumer or unusual migrated data path. | Plausible unique variable. Enablement uses existing tables rather than schema DDL; 3.5 has explicit Analytics migration handlers. Disabled restore control is healthy. | Restore the affected enabled backup as Run C and compare rows, handlers, Data Grid behavior, and 72-hour load with Runs A/B. Then use Cisco-supported disablement for Run D. |
 | 7 | A general 3.3-to-3.5 schema migration defect causes the incident. | Weakened by the successful Analytics-disabled 3.3→3.5 control, but data-volume/object-specific defects remain possible. | Compare affected versus control migration warnings, object counts, and state. |

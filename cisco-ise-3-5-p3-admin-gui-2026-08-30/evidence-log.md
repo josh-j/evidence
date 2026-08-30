@@ -374,6 +374,33 @@ is not a panic; a real panic should stop/reboot the whole guest and disrupt
 authentication. Exact panic text and uptime/Hyper-V evidence are required
 before relating it to the recurring GUI-only interval.
 
+## 2026-08-30 — Exact Patch 3 generic-VM profile mapping recovered
+
+**Source:** Patch 3 `bootstrap-3.5.0-527.jar`, `platform.properties`, control
+scripts, and rooted 3.3 comparison
+**Provenance:** Verified locally by bytecode inspection and read-only rooted
+inspection
+
+`PlatformProfileServiceImpl` classifies generic non-cloud VMs using ordered CPU
+and `/proc/meminfo` thresholds. A 32-vCPU/64-GiB VM misses the 96-GiB-and-larger
+rules and matches `cpu >= 32 && MemTotal >= 31,200,000 kB`, producing profile
+`sns3815`. Patch 3's generated values for that profile include Kong 1,536 MiB,
+Data Grid 2 GiB, Admin maximum threads 200, and Application Server heap 12,288
+MiB. The reported production OOM limit is exactly the predicted Kong limit.
+
+The active properties are local platform state, not restored application
+schema state. They are generated into
+`/opt/CSCOcpm/config/platform.properties-active` and rebuilt when absent, when
+node persona configuration changes, or when RAM changes. The inspected code's
+cache invalidation compares RAM but not CPU, creating a separate stale-profile
+risk after a CPU-only resize.
+
+This establishes a credible capacity-amplification mechanism but does not yet
+prove causality. Production still needs the active profile from all three
+nodes, the complete OOM cgroup/victim lines, and runtime container limits. A
+Cisco-supported VM shape or TAC-supported correction should be used for any
+remediation; generated properties must not be edited manually.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 
