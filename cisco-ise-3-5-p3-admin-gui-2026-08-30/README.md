@@ -482,6 +482,35 @@ sufficient by itself. Public release-note silence is only supporting prior
 evidence: TAC-only defects, unreported cases, and a new defect with a rare
 precondition remain possible.
 
+### Can Hyper-V, S2D/CSV, and VHDX be disregarded?
+
+They can be strongly deprioritized as the mechanism that **sustains** the
+12-hour GUI outage, but not entirely eliminated as an **initiating event**. The
+measured VHDX read latency was normally below 1 ms, the sampled average was
+about 0.05 ms, the observed maximum was about 20 ms, and ISE storage/memory/
+network metrics showed no onset-correlated anomaly. RADIUS/TACACS remained
+healthy. Most importantly, an ISE application restart restores the GUI without
+moving or rebooting the VM, changing the VHDX, changing CSV ownership, or
+repairing the storage cluster. Recovery lasting another 24–48 hours while the
+same infrastructure remains in place strongly favors application runtime state.
+
+Infrastructure can still supply a short trigger that no longer exists during
+the long degraded interval. A Hyper-V virtual-switch or physical-network flap
+can interrupt Ignite 47100/47500; a live migration, backup/checkpoint, CSV path
+transition, or brief tail-latency/fsync stall can disrupt Ignite persistence or
+checkpointing. Average latency counters can hide a short outlier. Once local
+Data Grid exits or wedges, the application-level retry and Admin/Kong cascade
+can persist after the infrastructure recovers.
+
+The infrastructure branch can be operationally closed only with synchronized
+evidence around the **first** Ignite/Data Grid transition—not the later GUI
+complaint: per-VHDX read/write tail latency and errors, CSV/S2D path and
+ownership events, backup/checkpoint/live-migration activity, Hyper-V host CPU
+scheduling, and virtual-switch/NIC drops or resets. Repeated incidents showing
+none of those before the first 10800/47100/47500 failure would make Hyper-V and
+storage non-actionable residual risks. Until then they remain low-priority
+trigger candidates, not plausible explanations for the latched 12-hour state.
+
 ### Supported by evidence
 
 - The incident disproportionately affects the Admin/control plane while authentication remains operational.

@@ -1061,3 +1061,33 @@ are not a complete TAC case inventory, the release is newer than the 3.3
 branch, and rare-condition defects can remain unpublished. The lab program
 should therefore isolate the production precondition while TAC evaluates the
 resulting 3.5 failure handling as a possible product defect.
+
+## 2026-08-30 — Hyper-V/storage bounded to low-priority trigger branch
+
+**Source:** reported host/storage measurements, application-restart behavior,
+and incident service isolation
+
+**Provenance:** Negative evidence for a sustained cause; initiating transient
+not captured at first failure
+
+Hyper-V, S2D/CSV, and VHDX behavior can be strongly deprioritized as the cause
+that sustains the 12-hour GUI failure. VHDX reads were reported mostly below
+1 ms, with about 0.05-ms sampled average and roughly 20-ms observed maximum;
+ISE metrics showed no correlated storage, memory, or general network anomaly;
+and RADIUS/TACACS continued. An application-only restart restores the GUI while
+the VM, host placement, VHDX, CSV ownership, and storage cluster remain
+unchanged, then remains healthy for 24–48 hours. That is much more consistent
+with latched application runtime state than continuous infrastructure pressure.
+
+The branch cannot be entirely discarded as the initiator. A short vSwitch/NIC
+or physical-network interruption can break Ignite 47100/47500, and a live
+migration, backup/checkpoint, CSV path transition, or brief high-tail-latency/
+fsync event can upset persistent Ignite recovery. Average counters can miss
+such a transient; after it clears, local Data Grid and the Admin/Kong cascade
+can remain latched.
+
+Closure requires evidence aligned to the first Data Grid transition: per-VHDX
+read/write tail latency and errors, CSV/S2D ownership/path events, backup/
+checkpoint/live-migration records, host CPU scheduling, and virtual-switch/NIC
+drops or resets. If repeated first-failure windows are clean, infrastructure
+becomes a non-actionable residual risk rather than a live root-cause branch.
