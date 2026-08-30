@@ -900,3 +900,41 @@ window there was no `invoked oom-killer`, `Memory cgroup out of memory`,
 `Killed process`, kernel-panic, lockup, or hung-task signature. The production
 `nginx invoked oom-killer` fragment must therefore remain classified as a real
 OOM event pending its victim/cgroup lines, not as this routine appliance noise.
+
+## 2026-08-30 — One-to-two-hour inter-PAN Data Grid partition modeled
+
+**Source:** operator hypothesis, exact Patch 3 `ignite-config.xml` and
+`ignite-control.sh`, and Apache Ignite 2 documentation
+
+**Provenance:** Patch behavior verified locally; production occurrence not yet
+established
+
+Exact Patch 3 fixes discovery and communication to TCP 47500 and 47100 with no
+port range, configures 120-second failure detection, and uses discovery
+connection-recovery and maximum-acknowledgement windows up to 300 seconds. The
+primary enables persistent-baseline auto-adjust after 30 seconds of stable
+topology. Therefore a one-to-two-hour inability of PPAN/PMNT and SPAN/SMNT to
+communicate is long enough to create member-failure/left processing, a baseline
+change and rebalance, then a second join/baseline/rebalance cycle after healing.
+The third 64-GiB PSN is also expected to be a server-mode member and its
+reachability determines the real partition shape.
+
+This is a plausible initiator for the production cascade, not yet proof of it.
+The Patch 3 Application Server connects to `localhost:10800`; remote 47100 or
+47500 filtering cannot directly issue that loopback refusal. It must first
+cause the PAN's local Ignite connector/process to disappear or remain unusable.
+If local 10800 stays present, topology exchange, rebalance, cache exceptions,
+or timeouts—not immediate connection refusal—are expected. If it disappears,
+the two internal ten-attempt/approximately-27-second callers can themselves
+produce roughly a thousand failure lines per hour, before GUI traffic. Network
+healing need not clear a stopped Data Grid container, persistence/recovery
+failure, or already-saturated Admin/Kong queues, which is compatible with GUI
+recovery only after an ISE application restart.
+
+The next production bundle must establish ordering on all three nodes:
+47100/47500 failure, node-left/failed event, coordinator/topology version,
+baseline adjustment, partition exchange/rebalance, PAN 10800 loss, first
+`IgniteClientPool` refusal, and first Admin threshold. The PSN view is the
+independent discriminator. If inter-node failure precedes local listener loss,
+this becomes a strong root-cause branch; if the listener disappears first, the
+trigger is PAN-local.

@@ -861,6 +861,83 @@ count, and the first Admin thread-pool alert in one normalized time zone. If
 trigger lead. If 10800 is verified healthy until the workday surge, it does
 not.
 
+## What a one-to-two-hour PAN-to-SPAN Data Grid break would do
+
+This is long enough to be a real topology event, not merely a delayed packet.
+Exact Patch 3 configuration establishes:
+
+- TCP 47500 is the fixed discovery port and TCP 47100 is the fixed inter-node
+  communication port; neither has a fallback port range;
+- server and client failure detection are configured for 120 seconds;
+- discovery socket/acknowledgement timeouts are 180 seconds, the maximum
+  acknowledgement and connection-recovery timeouts are 300 seconds, and the
+  communication/discovery paths request up to 50 reconnects;
+- the primary enables persistent-baseline auto-adjust with a 30-second stable
+  topology timeout;
+- the five declared application caches are replicated; `EDF2EndPoint` and
+  `UPSEddaData` additionally specify `READ_WRITE_SAFE` partition-loss policy.
+
+All three reported appliances have 64 GiB and should therefore be server-mode
+members. There is not enough information to call the result a simple
+"PPAN-versus-SPAN" split: the third PSN's reachability to each PAN determines
+the actual topology. A failure of only the direct PPAN-to-SPAN path can also
+affect TCP communication even if each still discovers the third node.
+
+If Ignite declares a server failed or left, the cluster performs a partition
+map exchange. After 30 seconds without another topology event, ISE's configured
+auto-adjust can change the persistent baseline to the surviving topology and
+trigger rebalancing. When the missing member returns, another join, baseline
+change, and rebalance can occur. Replication makes loss of one member less
+likely to lose these cache contents, but it does not make topology exchange,
+transactions, queries, checkpoints, or rebalancing free. New transactions can
+wait behind partition map exchange, and the exact ISE XML sets a 15-second
+transaction timeout during that exchange.
+
+There are two materially different PAN outcomes:
+
+1. **PAN Ignite remains running and 10800 remains open.** Local Java thin
+   clients can still connect. Expected evidence is node-left/failed messages,
+   topology-version changes, partition-map exchange, rebalance, cache invalid
+   state, or operation timeouts. This can slow GUI requests, but it does not by
+   itself explain an immediate TCP refusal to `localhost:10800`.
+2. **PAN Ignite exits, restarts, remains inactive/recovering, or withdraws its
+   thin-client connector.** The local 10800 listener disappears. This directly
+   produces the reported `IgniteClientPool` connection refusals and enables the
+   verified serialized-retry-to-Admin-pool cascade. The exact XML does not
+   define a custom segmentation resolver/policy, so the surviving side and the
+   PAN process outcome cannot be inferred from configuration alone.
+
+An hour is ample time to generate the reported log volume. Two built-in
+Application Server callers use the same ten-attempt client-construction path
+and roughly 27-second immediate-refusal cycle. Because creation is serialized,
+continuous internal attempts alone are of order 1,000 failures per hour; GUI
+traffic adds more. Thus "thousands" is compatible with a one-to-two-hour local
+10800 outage without requiring thousands of human page loads.
+
+Restoring inter-node connectivity does not guarantee immediate recovery. A
+running member may rejoin and rebalance normally, but a dead local container,
+stranded initialization lock, failed WAL/persistence recovery, or saturated
+Admin/Kong request queues can persist after the network heals. An application
+restart clearing the condition is compatible with a network event that was the
+initiator but no longer exists by the time users report the slow GUI.
+
+This hypothesis has a strict evidence test. On all three nodes, align the first
+47100/47500 transport/discovery error, `NODE_LEFT`/`NODE_FAILED` and coordinator
+or topology-version change, baseline auto-adjust, partition exchange/rebalance,
+PAN Data Grid process transition, first missing PAN 10800 listener, first local
+`IgniteClientPool` refusal, and first Admin threshold alert. Hyper-V virtual
+switch, firewall, and physical-network telemetry should be aligned to the same
+window. The third PSN's log is the best independent view of which node became
+isolated. Inter-node failure preceding PAN 10800 loss strongly supports this
+trigger; PAN 10800 loss preceding any inter-node evidence argues for a local
+Data Grid failure instead.
+
+References: [Cisco's ISE 3.5 release notes](https://www.cisco.com/c/en/us/td/docs/security/ise/3-5/release_notes/cisco-ise-release-notes-35.html)
+document the Data Grid port purposes;
+Apache Ignite documents [baseline auto-adjustment](https://ignite.apache.org/docs/ignite2/latest/clustering/baseline-topology),
+[partition-map exchange](https://ignite.apache.org/docs/latest/data-modeling/data-partitioning),
+and [TCP discovery/network behavior](https://ignite.apache.org/docs/ignite2/latest/clustering/network-configuration).
+
 ## What a one-node Option 45 reset means
 
 The production Option 45 operation was run on the PAN only. The exact Patch 3

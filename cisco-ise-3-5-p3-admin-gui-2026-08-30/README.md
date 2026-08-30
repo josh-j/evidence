@@ -63,6 +63,28 @@ context data in Ignite, giving daytime authentication/session/API work concrete
 ways to raise local cache/query pressure. The exact session settings changed in
 production must be identified before associating them with any specific cache.
 
+A one-to-two-hour Data Grid connectivity break between the PPAN/PMNT and
+SPAN/SMNT is now a strong candidate initiator, but only if its chronology is
+right. Patch 3 declares a failed member after a configured 120-second failure
+detection interval and enables persistent-baseline auto-adjust after only 30
+seconds of stable topology. A long break can therefore cause a member-loss
+exchange and rebalance, followed by another topology exchange and rebalance
+when connectivity returns. All three reported 64-GiB nodes should be Ignite
+servers, so the third PSN's view determines whether this is one isolated member
+or a different partition shape.
+
+The distinction from the production symptom is important: the Application
+Server connects to local `localhost:10800`. A firewall or path failure on
+inter-node 47100/47500 cannot directly refuse that loopback connection. It can
+indirectly cause the local PAN Ignite member to stop, restart, remain in
+recovery, or withdraw its client connector; that produces the observed local
+refusal and retry cascade. If 10800 remains listening, the expected evidence is
+instead topology/partition-exchange/rebalance delay or cache exceptions. The
+network-partition hypothesis becomes strong only if inter-node failures and a
+node-left/failed event precede loss of PAN 10800. Recovery of the network also
+does not guarantee prompt GUI recovery after Admin and Kong queues have filled
+or after the PAN's local Data Grid process has exited.
+
 This working statement is falsifiable without production root access. During
 the next onset, supported `show application status ise` and `show ports |
 include 10800` should establish whether Data Grid is stopped/restarting or its
