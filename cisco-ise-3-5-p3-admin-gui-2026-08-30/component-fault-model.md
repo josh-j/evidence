@@ -225,7 +225,14 @@ explicit 3-second retry waits as the dominant delay.
 
 ## Working failure propagation model
 
-The best-supported propagation model is:
+The best-supported current root-cause area is the PAN's local Data Grid/Ignite
+service and its TLS thin-client listener on `localhost:10800`. This is stronger
+than a generic component correlation: a persistent immediate refusal proves
+that nothing accepted the Java client's local connection at those instants.
+Kong cannot directly cause the independent Application Server state-monitor's
+loopback listener to disappear, whereas a missing Data Grid listener can block
+Admin work and create downstream Kong pressure. The best-supported propagation
+model is:
 
 ```text
 Trigger or initiating defect
@@ -261,6 +268,59 @@ Kong worker errors and possibly its cgroup OOM
 This ordering is an inference. Kong pressure could instead be the initiating
 fault, or both components could be driven by the same 09:00 request source.
 Only first-occurrence timestamps and live listener/cgroup state can order them.
+
+The remaining root-cause question is therefore not broadly “why is the GUI
+slow?” It is: **why is the local Ignite listener unavailable while ISE is
+supposedly running?** The focused branches are:
+
+1. the Data Grid container/process exited or is being restarted;
+2. Ignite is running but not active enough to bind/retain 10800 because of
+   discovery, activation, persistent-state/WAL, or cache initialization state;
+3. a local container/network/port-publication failure makes the listener
+   intermittently unreachable;
+4. work-hour activity or migrated data drives one of the preceding conditions.
+
+The platform profile primarily reduces Kong/JVM/Admin headroom; its `sns3815`
+Data Grid allocation is 2 GiB, so it does not by itself explain why 10800 is
+absent. The rare Analytics state is likewise a candidate workload/data trigger,
+not yet evidence of the failing subsystem.
+
+## What a one-node Option 45 reset means
+
+The production Option 45 operation was run on the PAN only. The exact Patch 3
+Data Grid `reset-config` implementation is local to the selected appliance. It:
+
+1. stops the local Ignite container if it is running;
+2. removes the local container and image;
+3. deletes local `/opt/ignite/data/*`, work database, snapshots, diagnostics,
+   and the local initialization lock;
+4. allows the service to be rebuilt and started locally.
+
+The reset path does not call the available `drop_ignite_address_table()`
+function and does not erase another node's Ignite storage. PAN and SPAN are
+always configured as Ignite servers. Other nodes with more than 32 GiB are
+also server-mode nodes; therefore all three reported 64-GiB appliances should
+be server-mode members. On return, the primary activates the cluster if needed
+and enables 30-second baseline auto-adjust. Patch 3 defines the observed ISE
+caches as replicated, allowing surviving cluster members to repopulate the
+rebuilt PAN.
+
+Operationally, the PAN temporarily loses local 10800 service and then rejoins;
+the surviving members retain cluster state. Rejoin can cause topology change,
+baseline adjustment, cache transfer/repopulation, and temporary CPU/network
+work. Resetting multiple members together would remove that safety and should
+not be inferred as the next experiment without Cisco guidance.
+
+Diagnostic interpretation:
+
+- improvement after only the PAN reset supports PAN-local persistence,
+  container, port/listener, or client-state cleanup;
+- it does **not** prove that cluster-wide logical cache contents were purged;
+- bad logical state retained by the other members can be copied back;
+- recurrence after 48 hours fits either reaccumulation under load or a local
+  service/container failure recurring after the reset;
+- because session limits/timeouts changed at the same time, the duration is
+  not a clean causal measurement.
 
 `java char[]` CPU is compatible with JSON/HTML serialization, exception and
 stack-trace formatting, logging, or repeated request handling. It does not

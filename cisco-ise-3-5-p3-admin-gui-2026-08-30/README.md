@@ -8,7 +8,57 @@ Primary question: can state associated with the Cisco-enabled Analytics license/
 
 The strongest demonstrated symptom is sustained **administration-plane saturation**, not a general ISE or Hyper-V resource failure. During the incident, Admin GUI pages take seconds to minutes, administration HTTP threads time out or exhaust, `jsvc` consumes roughly two CPU cores, and ISE Prometheus shows a sustained increase of about 10% user CPU. RADIUS and TACACS authentication reportedly remain healthy.
 
+### Current working root-cause statement
+
+The most likely initiating fault area is the **local ISE Data Grid/Ignite
+service on the affected PAN**, specifically loss or repeated restart/inactive
+state of its thin-client listener on `localhost:10800`. The thousands of
+`IgniteClientPool` immediate connection refusals are direct evidence that no
+listener accepted those local connections during the affected interval. Exact
+Patch 3 code then turns that service failure into serialized retry cycles that
+block Data Grid-dependent Admin work.
+
+The likely propagation is:
+
+```text
+local Data Grid listener stops/restarts or never becomes fully active
+    -> localhost:10800 connection refusals
+    -> serialized Ignite client retries and blocked Admin requests
+    -> admin-http-pool occupancy and threshold alerts
+    -> jsvc CPU/log/char[] work and GUI timeouts
+    -> Kong retains slow upstream requests, worker pressure, possible OOM
+```
+
+The reason the listener becomes unavailable is not yet proven. The focused
+branches are Data Grid container restart/crash, partial/deactivated Ignite
+state, or durable Data Grid/discovery/cache state exposed by daytime workload.
+The 32-vCPU/64-GiB platform profile and 09:00 request load are credible
+capacity amplifiers. Analytics-enabled migrated state remains a possible input
+to the failing path, not the presently demonstrated failing component.
+
+This working statement is falsifiable without production root access. During
+the next onset, supported `show application status ise` and `show ports |
+include 10800` should establish whether Data Grid is stopped/restarting or its
+listener is absent. First-occurrence timestamps must then order Data Grid,
+Admin, and Kong events.
+
 An ISE application restart promptly restores GUI performance. A Data Grid reset/reconfiguration coincided with a longer healthy interval, but user-session and timeout settings were changed at the same time. That event therefore does **not** prove that Data Grid is the cause.
+
+The reported Option 45 reset was performed only on the PAN. Exact Patch 3
+control logic makes this a **node-local rebuild**, not a cluster-wide purge: it
+stops and removes that node's Ignite container and image and deletes its local
+`data`, work database, snapshots, diagnostics, and lock file. It does not drop
+the Oracle `TBL_ADDRS` discovery table and does not erase the other nodes'
+state. In this deployment, each 64-GiB PAN/PSN is configured by the script as
+an Ignite server; after the PAN restarts, baseline auto-adjust and replicated
+caches allow it to rejoin and be repopulated from the surviving nodes.
+
+Consequently, the 48-hour improvement is more supportive of a **PAN-local
+container/persistence/listener problem or restart/rebalance effect** than of a
+cluster-wide bad cache having been permanently removed. A logical state shared
+by the surviving nodes could return to the PAN after rejoin or accumulate
+again under workload. The simultaneous session-setting changes remain a
+confounder.
 
 The old Analytics enablement is a credible migration variable worth isolating. Rooted 3.3 inspection shows that enabling it writes application data to existing licensing tables and requests entitlement reporting; it does not execute schema DDL in the enablement path. The completed Analytics-disabled control restore proves that ISE 3.5 runs dedicated miscellaneous-license, monitoring-analytics, and Node Exporter migration handlers. The remaining risk is migrated **enabled data or feature state interacting with a 3.5 consumer or migration defect**, rather than the act of enabling Analytics having altered the 3.3 database schema.
 

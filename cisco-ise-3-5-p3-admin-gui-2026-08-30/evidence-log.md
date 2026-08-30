@@ -408,6 +408,29 @@ show-tech area. Therefore the profile can be confirmed without unsupported
 access. Generated-property and live container-limit confirmation should be
 requested from TAC using the production support bundle.
 
+## 2026-08-30 — One-node Option 45 scope resolved
+
+**Source:** operator clarification and exact Patch 3 `ignite-control.sh` /
+Ignite configuration
+**Provenance:** Reported for production scope; verified locally for control
+behavior
+
+Production ran Data Grid Reset Config only on the PAN, not every deployment
+node. Patch 3's reset implementation removes only that appliance's Ignite
+container/image and local persistence/work/snapshot/diagnostic data. It neither
+drops the `TBL_ADDRS` discovery table nor removes other members' persisted
+state. The reported 64-GiB PANs and PSN are all selected as Ignite server-mode
+nodes by Patch 3 logic. The rebuilt PAN can therefore rejoin the surviving
+cluster and receive replicated cache state after baseline adjustment.
+
+The observed 48-hour improvement should not be described as proof that the
+entire Data Grid was cleared. It raises the probability of a PAN-local
+container/persistence/listener issue or a transient restart/rebalance benefit.
+It remains possible for logical cluster state to be copied back or for the
+triggering workload/state to reaccumulate. Simultaneous user-session and
+timeout changes prevent assigning the longer healthy interval solely to the
+reset.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 
