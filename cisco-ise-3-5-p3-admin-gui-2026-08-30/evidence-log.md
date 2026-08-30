@@ -480,6 +480,43 @@ leave dirty recovery state or a stranded lock, making persistence/recovery a
 secondary reason the listener remains unavailable rather than the original
 trigger.
 
+## 2026-08-30 — Midnight and early-morning jobs inventoried
+
+**Source:** exact Patch 3 bundled administrator help and OIDC service bytecode;
+rooted 3.3 Patch 11 scheduler inspected as a structural migration control
+
+**Provenance:** Patch 3 behavior verified locally; affected-production schedule
+and execution timestamps not yet supplied
+
+Patch 3 does not automatically reset Data Grid at midnight. Its help states
+that the `Endpoints Purge Activities` alarm is triggered at midnight, while the
+enabled-by-default endpoint purge runs at about 01:00 in the PPAN time zone.
+The purge removes endpoints and registered devices older than 30 days and,
+above 5,000 endpoints, deletes batches every three minutes. The default
+Profiler Feed Service update is also 01:00 when that feature is enabled and can
+cause re-profiling and increased load.
+
+Because Patch 3 keeps replicated endpoint/profile objects in Ignite, a large
+endpoint purge is the strongest presently identified overnight workload that
+could drive replicated cache removal plus WAL/checkpoint work. It could fail or
+weaken the local PAN Data Grid hours before 09:00 users expose the condition,
+or merely accumulate pressure that work-hour demand later pushes over a
+threshold. This is a testable trigger hypothesis, not a production finding.
+
+Exact Patch 3 OIDC bytecode schedules expired-session cleanup every 360 minutes
+with the first run 360 minutes after construction. It is tied to Application
+Server start time, not midnight. Cisco also documents MnT DBMS statistics at
+02:00 and Sunday index maintenance at 01:00. The rooted 3.3 control contains
+additional Oracle jobs at 00:00, 00:30, 01:30, 02:00, and 04:00, but their
+presence in restored production 3.5 must not be assumed without its scheduler
+or support-bundle evidence.
+
+Required discriminator: normalize PPAN, database, and log time zones, then
+order endpoint-purge start/end/count, the last successful Data Grid state, the
+first refused 10800 connection, and the first Admin thread-pool alert. A first
+refusal during 00:00-02:00 makes overnight work a strong trigger lead; a proven
+healthy listener until 09:00 points back to work-hour demand.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

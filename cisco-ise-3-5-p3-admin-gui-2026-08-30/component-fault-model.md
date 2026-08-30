@@ -404,6 +404,45 @@ to demand-driven runtime failure. Refusals hours before GUI degradation weaken
 the claim that the listener loss itself initiated the visible incident unless
 the later request burst demonstrably amplified it.
 
+### What happens at midnight and early morning
+
+There is no single ISE "midnight job" and there is no automatic Data Grid reset
+at midnight. The exact Patch 3 bundled help identifies these relevant events:
+
+| Time/cadence | Activity | Relevance |
+|---|---|---|
+| 00:00 | The `Endpoints Purge Activities` alarm is triggered for the preceding 24 hours. | This is reporting/alarm timing; it is not by itself evidence that deletion or Ignite failure starts at 00:00. |
+| About 01:00, PPAN time zone | The enabled-by-default endpoint purge deletes endpoints and registered devices older than 30 days. Above 5,000 endpoints, deletion proceeds in batches every three minutes. | Strongest known overnight workload related to endpoint state and therefore a credible cache/replication/persistence-pressure trigger. |
+| 01:00 local time, if enabled | Profiler Feed Service update. | Can download profiles and re-profile endpoints; Cisco's own help warns that an update can increase system load. |
+| Every six hours after cache construction/Application Server start | OIDC expired-session cleanup. | Exact Patch 3 bytecode uses a 360-minute initial delay and fixed 360-minute period. It is restart-relative, not midnight-relative. |
+| 02:00 on MnT | DBMS statistics. | Cisco documents expected temporary MnT CPU load; it is less direct for a PAN-local 10800 refusal. |
+| 01:00 Sunday | Weekly large-index maintenance. | Relevant only if the recurrence is weekly/Sunday, which the reported daily behavior is not. |
+
+The Patch 3 endpoint caches are replicated in Ignite. A sufficiently large
+purge can consequently entail repeated cache removes, replication, persistent
+WAL/checkpoint activity, and endpoint/profiler processing. This makes a causal
+sequence possible: the 01:00 purge creates or accumulates pressure, local Data
+Grid exits or becomes unhealthy overnight, and 09:00 Admin/API demand exposes
+and amplifies the already-present fault. It is equally possible that the purge
+finishes normally and unrelated 09:00 demand is the initiating load; no
+production timestamps yet select between these models.
+
+Structural inspection of the rooted 3.3 Patch 11 control also found Oracle
+scheduler work at 00:00 (audit archive timestamp maintenance), 00:30 (marking
+expired endpoint certificates), 01:30 (MnT database-size job), 02:00 (MnT
+statistics), and 04:00 (expired endpoint-certificate deletion). Those timings
+are useful migration clues, not proof that the restored 3.5 production schema
+retains identical jobs. Scheduled backups and reports can add site-specific
+overnight work.
+
+The decisive timeline is therefore not the first 09:00 complaint. For each
+restart cycle, obtain the last successful Data Grid `ACTIVE`/`RUNNING` state,
+the first `IgniteClientPool` refusal, endpoint-purge start/end and deletion
+count, and the first Admin thread-pool alert in one normalized time zone. If
+10800 disappears during 00:00-02:00, overnight maintenance becomes a strong
+trigger lead. If 10800 is verified healthy until the workday surge, it does
+not.
+
 ## What a one-node Option 45 reset means
 
 The production Option 45 operation was run on the PAN only. The exact Patch 3
