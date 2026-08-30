@@ -152,6 +152,59 @@ The 09:00 onset coincides with the start of work hours. It may represent user/se
 
 `CharacterEncodingFilter` is a stack location, not proof that character encoding is the root cause. Rooted decompilation resolves line 123 exactly to `FilterChain.doFilter(request, response)`, and Patch 3 maps the filter to every Admin path (`/*`). A deeper operation throws the socket-read timeout and the exception unwinds through this common frame. The waiting read holds an `admin-http-pool` thread busy; enough concurrent waits produce the threshold alert. The 15-minute recurrence may be alarm evaluation cadence rather than a 15-minute initiating event.
 
+Specific actions that submit work to this pool are GUI/catch-all requests,
+especially `/admin/...`: opening or refreshing data-grid pages, changing their
+filter/sort/page, loading endpoint or identity details, running broad searches,
+starting or downloading an export/report, GUI dashboard/live-log polling,
+login/OIDC/session refresh, legacy integrations calling `/admin/API/...`, and
+HTTPS scanners crawling the same catch-all route. Several AJAX calls can be
+created by one navigation, and a retrying client can overlap them. ERS `/ers`,
+OpenAPI `/api`, pxGrid, SSH, RADIUS, and TACACS normally use other executors.
+
+The strongest Patch 3-specific exhaustion mechanism is a GUI/data-grid/session
+request requiring Data Grid state while the local thin-client listener on
+`localhost:10800` is unavailable. The request retains its Admin worker while
+it waits for the class-wide synchronized `IgniteClientPool` construction path
+and/or its approximately 27-second immediate-refusal retry cycle. Other GUI
+requests needing the same client accumulate behind that serial point. With the
+predicted 200-thread `sns3815` pool, about 7.4 continuously arriving 27-second
+requests per second fill every worker; the observed 22-second latency requires
+about nine per second. A data-heavy page, several tabs, GUI polling, DNA/legacy
+Admin automation, or a scanner can supply that rate without high network
+throughput. If the complete timeout stack instead contains Oracle JDBC,
+outbound HTTP, Tomcat request parsing, or an ISE inter-node client, then the
+specific retaining action is respectively a query/report, remote integration,
+slow request body/upload, or deployment call rather than Ignite.
+
+Logged-in user count is not equivalent to pool occupancy: idle sessions own no
+worker. At the lab's healthy roughly 0.1-second login-page latency, the
+predicted 200-worker pool would require vastly more sustained human traffic
+than a normal administrator population. Once backend latency reaches 22–27
+seconds, a burst such as 20 users whose page loads each generate ten overlapping
+AJAX calls can temporarily occupy 200 workers. Persistence until application
+restart, however, favors user demand exposing/amplifying a latched backend,
+shared-lock, retry, or automation condition rather than ordinary GUI population
+alone. Treat 09:00 as a demand trigger until one-minute request timing proves
+whether the source/URI surge preceded the first backend failure.
+
+An HTTPS vulnerability scan is a concrete Admin-pool source only when it hits
+443 and Kong forwards paths such as `/admin/...` through the GUI catch-all to
+Tomcat 9443. SSH-only ACAS attempts never enter this pool. Fast scanner 401/404
+responses are normally cheap; they become material when the catch-all reaches
+a slow handler, requests overlap without backoff, or scanning triggers a
+shared backend defect. Scanner fingerprints are a dominant source IP/User-Agent,
+many paths or methods, 401/403/404/5xx responses, and an onset matching the scan
+schedule.
+
+Normal ISE inter-node database replication, messaging/PSC, Ignite 47100/47500,
+local Ignite client 10800, pxGrid, RADIUS/TACACS, ERS 9060, and OpenAPI 9070 do
+not directly use `admin-http-pool`. Another ISE node consumes the Admin pool
+only if it calls the PAN's public GUI/legacy `/admin/...` route, or indirectly
+when an already-running Admin request waits on an inter-node call. Group Kong
+records by the known PAN/SPAN/PSN addresses to prove this rather than treating
+all inter-node traffic as Admin traffic. Disabling ERS/OpenAPI lowers their
+priority but leaves the GUI catch-all and `/admin` scanner/legacy paths active.
+
 ### Ignite / Data Grid
 
 - `ise-ignite.log` contains thousands of:
