@@ -428,6 +428,37 @@ Safe mode should not be left as the steady production state. Correct the
 access/authentication configuration and restart normally because the mode
 intentionally weakens Admin access controls.
 
+#### Leaving safe mode and cluster scope
+
+Safe mode has no independent disable command or automatic expiry. On the node
+where it was started, first correct the Admin IP/certificate-authentication
+configuration, then run:
+
+```text
+application stop ise
+application start ise
+```
+
+An ordinary `application start ise` cannot replace a currently running safe
+instance; ISE reports that it is already running. After the normal start, `show
+application status ise` must no longer print the safe-mode warning. Verify this
+from an allowed management address using a known internal administrator so a
+bad access rule does not immediately cause another lockout.
+
+The `ise.startup.safe=true` flag is local process state and is not replicated as
+a deployment-wide setting. Other nodes do not enter safe mode, relax their IP
+restrictions, or bypass certificate-based Admin authentication merely because
+the command was issued on the PAN. To leave safe mode on multiple nodes, each
+node that was explicitly started safe must be restarted normally.
+
+The stop/start still has ordinary cluster effects. Stopping the PAN removes its
+local Application Server, Kong, and Data Grid member temporarily; topology and
+baseline/rejoin activity can occur, Admin service is unavailable on that node,
+and PAN auto-failover may trigger if configured and the outage exceeds its
+window. Other PSNs can continue RADIUS/TACACS, but a stopped PSN cannot serve its
+own authentication traffic and NAD failover determines continuity. Do not stop
+multiple Data Grid members together merely to clear safe mode.
+
 ## Why jsvc can consume 200–300% CPU without using all 32 vCPUs
 
 Linux `top`-style process percentages count 100% per logical CPU. Thus jsvc at

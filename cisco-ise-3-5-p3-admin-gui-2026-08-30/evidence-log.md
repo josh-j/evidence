@@ -725,6 +725,15 @@ dependencies, while treating the independent 10800 refusals as still requiring
 their own explanation. Do not leave production in safe mode after correcting
 the access problem.
 
+Safe mode is disabled locally with `application stop ise` followed by ordinary
+`application start ise`; it does not expire and a start command cannot replace
+an already-running instance. Absence of the safe warning in `show application
+status ise` verifies the normal instance. The startup flag does not replicate:
+only nodes explicitly started safe relax their own Admin access/authentication.
+The restart can still cause local Data Grid leave/rejoin, Admin downtime, and
+possibly PAN auto-failover; other PSNs continue independently unless they are
+also stopped.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 
