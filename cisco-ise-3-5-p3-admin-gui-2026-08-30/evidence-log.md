@@ -454,6 +454,32 @@ repair: memory-driven container exit/restart or a stranded initialization/
 recovery state. Other focused branches are local WAL/page/checkpoint failure,
 Oracle JDBC discovery/baseline/TLS failure, and 10800 bind/firewall state.
 
+## 2026-08-30 — Initial-trigger models separated
+
+**Source:** reported 09:00 timing and exact Patch 3 Ignite cache/configuration
+**Provenance:** Mechanisms verified locally; production timing not yet supplied
+
+The visible 09:00 onset can mean either that work-hour demand exposed an Ignite
+listener that had already failed during startup, or that a previously healthy
+listener disappeared under the new load. The first `IgniteClientPool` refusal
+after each restart—not the first user complaint—distinguishes those models.
+
+Patch 3 places replicated endpoint/profile, EDDA, endpoint-license, 30-day MFC,
+and OIDC session-context caches in Ignite. `OIDCSessionContextCache` is
+SQL-on-heap and stores token strings plus session lifetime/touch data. These are
+concrete workload sources, but no affected cache counts or growth series have
+been collected. The session-limit/time-limit changes made alongside Option 45
+remain confounded until their exact setting names and scope identify whether
+they concern Admin sessions, RADIUS accounting/max-session policy, portals, or
+external OIDC.
+
+The leading demand-driven initiating class is ordinary Admin/API/session/cache
+activity crossing a PAN-local runtime threshold, potentially magnified by a
+poller, report, or enabled feature consumer. An abrupt exit can subsequently
+leave dirty recovery state or a stranded lock, making persistence/recovery a
+secondary reason the listener remains unavailable rather than the original
+trigger.
+
 The complete architecture, ranked hypotheses, discriminators, and minimum
 production capture are in [`component-fault-model.md`](component-fault-model.md).
 

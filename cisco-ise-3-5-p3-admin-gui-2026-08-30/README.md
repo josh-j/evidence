@@ -54,6 +54,15 @@ provided from the affected node. The established lead is the missing/refused
 local listener; the first Data Grid transition and container exit reason are
 the evidence still required for root cause.
 
+The initial trigger has two testable models. Ignite may fail during startup and
+remain mostly latent until 09:00 GUI/API demand exposes and amplifies it; or it
+may remain healthy overnight and exit only when work-hour activity crosses a
+local runtime threshold. The first refusal timestamp after restart separates
+them. Patch 3 stores replicated endpoint, EDDA, licensing, MFC, and OIDC session
+context data in Ignite, giving daytime authentication/session/API work concrete
+ways to raise local cache/query pressure. The exact session settings changed in
+production must be identified before associating them with any specific cache.
+
 This working statement is falsifiable without production root access. During
 the next onset, supported `show application status ise` and `show ports |
 include 10800` should establish whether Data Grid is stopped/restarting or its

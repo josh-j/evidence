@@ -356,6 +356,54 @@ or only becomes fatal after new writes. At present there is no production
 Ignite OOM, exit code, lock-state, WAL, or bind signature, so none of these
 mechanisms should be stated as the established cause.
 
+### What could initiate the local failure
+
+There are two different timing models, and “the GUI became slow at 09:00” does
+not distinguish them:
+
+1. **Ignite failed during or shortly after startup but remained latent.** The
+   first Admin pages used after work began exposed an already-missing listener,
+   and request volume made retry CPU/logging visible. In this model the initial
+   cause is initialization/recovery: stale service lock, Oracle JDBC discovery,
+   TLS/keystore, cluster activation/baseline, or WAL/checkpoint recovery.
+2. **Ignite was healthy overnight and failed at work-hour load.** Admin/UI/API,
+   endpoint/profile, session, or scheduled activity raised local transient
+   heap/native/direct-buffer/thread/queue demand until the PAN's container/JVM
+   exited or the connector stopped accepting connections. The subsequent
+   retries and logging produce the observed sustained `jsvc` CPU increase.
+
+Patch 3's replicated Ignite caches include endpoint/profile data
+(`EDF2EndPoint`), EDDA data, endpoint licensing, a 30-day MFC endpoint cache,
+and `OIDCSessionContextCache`. The OIDC cache is SQL-on-heap and stores ID/token
+strings and session lifetime/touch fields. These are concrete sources of cache
+and query work, but no production cache count or growth measurement exists.
+The operator changed maximum-session and time-limit settings at the same time
+as Option 45; those changes are relevant only after identifying their exact
+scope. Administrative-session, RADIUS max-session, portal, and external-OIDC
+settings are not interchangeable, so the current evidence does not prove that
+the changed values control `OIDCSessionContextCache`.
+
+The most plausible demand-driven initiators, in order, are:
+
+- ordinary 09:00 Admin/API activity crossing a tight local runtime threshold;
+- retained/session/cache entries or expensive Data Grid SQL/query work growing
+  between restarts;
+- an external poller, scheduled report, or enabled feature consumer beginning
+  a burst of Data Grid-dependent work;
+- a topology/discovery/checkpoint event coinciding with that load.
+
+An abrupt runtime exit can then create secondary recovery trouble: dirty WAL or
+checkpoint state, a restart loop, or a stranded initialization lock. Thus
+“persistence/recovery failure” may be the reason the listener stays down rather
+than the original initiating event.
+
+Use the first `IgniteClientPool` refusal after restart to distinguish the two
+models. Refusals within minutes of startup point to initialization/recovery.
+A verified active 10800 listener followed by its disappearance at 09:00 points
+to demand-driven runtime failure. Refusals hours before GUI degradation weaken
+the claim that the listener loss itself initiated the visible incident unless
+the later request burst demonstrably amplified it.
+
 ## What a one-node Option 45 reset means
 
 The production Option 45 operation was run on the PAN only. The exact Patch 3
