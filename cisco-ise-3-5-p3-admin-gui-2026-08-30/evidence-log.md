@@ -1151,3 +1151,38 @@ threshold, Kong failure, and cgroup OOM must be compared across all nodes. The
 same capture also records request source/URI/rate and the active Admin/Kong/Data
 Grid limits so TAC can distinguish trigger, retry amplifier, and sustained
 latched state.
+
+## 2026-08-31 — Cluster service fabrics separated diagrammatically
+
+**Source:** Cisco ISE 3.5 deployment, pxGrid, ports, replication, and session
+management documentation; rooted 3.3 control; exact ISE 3.5 Patch 3 files and
+bytecode
+
+**Provenance:** Cisco-documented service relationships plus locally verified
+implementation detail; production persona assignment and initiating fault are
+not fully observed
+
+[`ise-cluster-architecture.md`](ise-cluster-architecture.md) now maps external
+clients, node-local services, and the three-node deployment. The central
+finding is that JGroups, ISE Messaging, LSD/LDD, Ignite Data Grid, pxGrid, and
+Oracle are not synonyms for one replication layer:
+
+- JGroups transports incremental configuration/database change messages from
+  the PPAN toward replicas on nodes that each have a local Oracle database.
+- LSD is the former name of Light Data Distribution. Its limited RADIUS Session
+  Directory and Endpoint Owner Directory caches are exchanged between PSNs
+  through ISE Messaging/RabbitMQ, rather than through JGroups or Ignite.
+- Ignite is the separate persistent Data Grid. Application clients normally
+  enter through TLS `localhost:10800`; eligible members form the distributed
+  grid over 47500/47100.
+- pxGrid 2.0 is the external discovery, authorization, query, and publish/
+  subscribe integration surface on 8910. MnT supplies the richer Session
+  Directory provider data to pxGrid consumers.
+- Kong is ingress for Admin/API requests and routes node-locally to Java
+  backends. It is not a database- or session-replication mechanism.
+
+The diagrams also distinguish LDD's limited PSN-local owner/session cache from
+the richer MnT Session Directory exposed to external pxGrid subscribers. This
+prevents an LSD/LDD queue-link fault, a pxGrid subscriber problem, a JGroups
+replication fault, and an Ignite listener failure from being treated as the
+same condition merely because each moves some form of state.

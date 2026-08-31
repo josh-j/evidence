@@ -595,5 +595,6 @@ Do not bypass JWT verification, patch the license handler, write Analytics rows 
 - [`evidence-log.md`](evidence-log.md) — provenance-aware inventory and dated findings.
 - [`experiment-plan.md`](experiment-plan.md) — controlled restore comparison and incident capture plan.
 - [`production-cli-capture-runbook.md`](production-cli-capture-runbook.md) — supported non-root production capture commands, must-answer questions, and interpretation matrix.
+- [`ise-cluster-architecture.md`](ise-cluster-architecture.md) — diagrams of external request paths, per-node services, and the distinct JGroups, ISE Messaging/LDD, Ignite, pxGrid, Oracle, and MnT cluster fabrics.
 - [`component-fault-model.md`](component-fault-model.md) — rooted/static component architecture, retry amplification, OOM interpretation, and ranked hypotheses.
 - [`media-manifest.md`](media-manifest.md) — canonical media locations, byte counts, and SHA-256 values.
