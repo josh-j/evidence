@@ -1186,3 +1186,25 @@ the richer MnT Session Directory exposed to external pxGrid subscribers. This
 prevents an LSD/LDD queue-link fault, a pxGrid subscriber problem, a JGroups
 replication fault, and an Ignite listener failure from being treated as the
 same condition merely because each moves some form of state.
+
+## 2026-08-31 — Architecture diagrams reorganized for causal reading
+
+**Source:** visual review of rendered Mermaid output and the existing
+evidence-qualified component model
+
+**Provenance:** Presentation change; service relationships and evidence status
+preserved
+
+The architecture document was reorganized into five focused views with one
+purpose per diagram: request/data paths, the four cluster fabrics, runtime and
+cgroup boundaries, the two session-directory systems, and the incident retry
+loop. The former all-in-one node and deployment drawings repeated services and
+produced crossing arrows that made distinct mechanisms look coupled.
+
+The revised overview uses horizontal causal lanes and one stable palette:
+external systems, ingress/containers, application services, stores/caches,
+cluster fabrics/faults, and unproven paths. Analytics state, internal scheduled
+work, AD Agent/PBIS eventlog, and process/container memory boundaries are now
+visible without asserting an unproven Analytics-to-Ignite relationship.
+Optional subsystems and unresolved internals are listed separately and should
+receive focused diagrams only if evidence makes them active hypotheses.
